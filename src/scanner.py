@@ -1,6 +1,10 @@
 import hashlib
 import os
 
+# --- BAGIAN BARU: Daftar direktori yang akan diabaikan ---
+# Kita definisikan sebagai konstanta di bagian atas agar mudah diubah.
+EXCLUDED_DIRS = {'.git', '__pycache__', 'node_modules', 'venv'}
+
 def calculate_md5(file_path):
     hash_md5 = hashlib.md5()
     try:
@@ -32,12 +36,19 @@ def scan_file(file_path, signatures):
         return True
     return False
 
-def scan_directory(dir_path, signatures):
+# --- FUNGSI SCAN_DIRECTORY (Diperbarui) ---
+def scan_directory(dir_path, signatures, excluded_dirs):
     files_scanned = 0
     threats_found = 0
     print(f"\nMemulai pemindaian di direktori: '{dir_path}'\n" + "="*40)
     
     for root, dirs, files in os.walk(dir_path):
+        
+        # --- LOGIKA BARU: Pengecualian Direktori ---
+        # Kita modifikasi 'dirs' secara "in-place" menggunakan [:]
+        # Ini akan memberitahu os.walk untuk tidak masuk ke dalam direktori yang kita ekskludekan.
+        dirs[:] = [d for d in dirs if d not in excluded_dirs]
+        
         for file in files:
             file_path = os.path.join(root, file)
             try:
@@ -51,6 +62,7 @@ def scan_directory(dir_path, signatures):
     print(f"  Total file dipindai: {files_scanned}")
     print(f"  Total ancaman ditemukan: {threats_found}")
 
+# --- BAGIAN EKSEKUSI UTAMA (Diperbarui) ---
 if __name__ == "__main__":
     db_file_path = os.path.join(os.path.dirname(__file__), '..', 'signatures.txt')
     malware_signatures = load_signatures(db_file_path)
@@ -59,7 +71,8 @@ if __name__ == "__main__":
         print("Database signature berhasil dimuat.")
         target_dir = input("Masukkan path direktori yang akan di-scan (contoh: D:\\Downloads atau .): ")
         if os.path.isdir(target_dir):
-            scan_directory(target_dir, malware_signatures)
+            # Panggil fungsi scan_directory dengan daftar pengecualian
+            scan_directory(target_dir, malware_signatures, EXCLUDED_DIRS)
         else:
             print(f"Error: Path '{target_dir}' bukan direktori yang valid atau tidak ditemukan.")
     else:
