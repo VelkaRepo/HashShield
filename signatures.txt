@@ -1,1 +1,2 @@
-69630e4574ec6798239b091cda43dca0,EICAR-Test-File
+44d88612fea8a8f36de82e1278abb02f,EICAR-Test-File-System-Specific
+5eb63bbbe01eeed093cb22bb8f5acdc3,Test-File-Aman-System-Specific

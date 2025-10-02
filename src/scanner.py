@@ -1,31 +1,17 @@
 import hashlib
 import os
 
-# Fungsi untuk menghitung hash MD5 dari sebuah file
 def calculate_md5(file_path):
-    """
-    Membaca file dalam mode binary dan mengembalikan hash MD5-nya.
-    Menggunakan 'rb' (read binary) penting agar hash konsisten di semua OS.
-    """
     hash_md5 = hashlib.md5()
     try:
         with open(file_path, "rb") as f:
             for chunk in iter(lambda: f.read(4096), b""):
                 hash_md5.update(chunk)
         return hash_md5.hexdigest()
-    except FileNotFoundError:
-        print(f"Error: File tidak ditemukan di '{file_path}'")
-        return None
-    except Exception as e:
-        print(f"Error saat membaca file '{file_path}': {e}")
+    except Exception:
         return None
 
-# Fungsi untuk memuat signature malware dari file database
 def load_signatures(db_path):
-    """
-    Membaca file database signature dan memuatnya ke dalam dictionary.
-    Format: { 'hash_value': 'malware_name' }
-    """
     signatures = {}
     try:
         with open(db_path, 'r') as f:
@@ -39,34 +25,42 @@ def load_signatures(db_path):
         print(f"Error saat memuat signature: {e}")
     return signatures
 
-# Fungsi utama untuk memindai file
 def scan_file(file_path, signatures):
-    """
-    Menghitung hash file dan memeriksanya di dalam dictionary signatures.
-    """
     file_hash = calculate_md5(file_path)
-    if file_hash:
-        if file_hash in signatures:
-            print(f"[!!!] MALWARE DITEMUKAN: File '{file_path}' cocok dengan signature '{signatures[file_hash]}'")
-        else:
-            print(f"[---] AMAN: File '{file_path}' bersih.")
-    else:
-        print(f"[???] GAGAL: Tidak dapat memindai file '{file_path}'.")
+    if file_hash and file_hash in signatures:
+        print(f"[!!!] MALWARE DITEMUKAN: File '{file_path}' cocok dengan '{signatures[file_hash]}'")
+        return True
+    return False
 
-# --- Bagian Eksekusi Utama ---
+def scan_directory(dir_path, signatures):
+    files_scanned = 0
+    threats_found = 0
+    print(f"\nMemulai pemindaian di direktori: '{dir_path}'\n" + "="*40)
+    
+    for root, dirs, files in os.walk(dir_path):
+        for file in files:
+            file_path = os.path.join(root, file)
+            try:
+                if scan_file(file_path, signatures):
+                    threats_found += 1
+            except Exception as e:
+                print(f"[???] GAGAL memindai file '{file_path}': {e}")
+            files_scanned += 1
+
+    print("="*40 + f"\nRingkasan Pemindaian Selesai:")
+    print(f"  Total file dipindai: {files_scanned}")
+    print(f"  Total ancaman ditemukan: {threats_found}")
+
 if __name__ == "__main__":
-    # Path ke file signature, relatif dari lokasi script
     db_file_path = os.path.join(os.path.dirname(__file__), '..', 'signatures.txt')
-
     malware_signatures = load_signatures(db_file_path)
-
+    
     if malware_signatures:
         print("Database signature berhasil dimuat.")
-
-        # File yang akan di-scan (file tes EICAR kita)
-        file_to_scan = "file_tes_eicar.txt" 
-
-        print(f"\nMemindai file: {file_to_scan}...")
-        scan_file(file_to_scan, malware_signatures)
+        target_dir = input("Masukkan path direktori yang akan di-scan (contoh: D:\\Downloads atau .): ")
+        if os.path.isdir(target_dir):
+            scan_directory(target_dir, malware_signatures)
+        else:
+            print(f"Error: Path '{target_dir}' bukan direktori yang valid atau tidak ditemukan.")
     else:
         print("Tidak dapat melanjutkan pemindaian karena database signature gagal dimuat.")
