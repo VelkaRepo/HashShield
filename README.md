@@ -18,7 +18,7 @@ Installation
 Clone the repository:
 
 # Replace with your actual repository URL
-git clone [https://github.com/YOUR_USERNAME/Hash-Shield.git](https://github.com/YOUR_USERNAME/Hash-Shield.git)
+git clone [https://github.com/VelkaRepo/HashShield.git](https://github.com/VelkaRepo/HashShield.git)
 
 Navigate to the project directory:
 
