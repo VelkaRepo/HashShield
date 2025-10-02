@@ -32,3 +32,20 @@ A simple, fast, signature-based malware scanner written in Python. Scans directo
 Run the scanner from the project's root directory:
 ```bash
 python src/scanner.py
+
+The script will then prompt you to enter the path of the directory you want to scan. To scan the current directory, simply enter . and press Enter.
+
+Example Ouput:
+Signature database loaded successfully.
+Enter the directory path to scan (e.g., C:\Downloads or .): .
+
+Starting scan in directory: '.'
+========================================
+[!!!] MALWARE DETECTED: File '.\file_tes_eicar.txt' matches 'EICAR-Test-File-System-Specific'
+[!!!] MALWARE DETECTED: File '.\file_tes_aman.txt' matches 'Test-File-Aman-System-Specific'
+========================================
+Scan Summary:
+  Total files scanned: 48
+  Threats found: 2
+
+```bash
