@@ -47,5 +47,3 @@ Starting scan in directory: '.'
 Scan Summary:
   Total files scanned: 48
   Threats found: 2
-
-```bash
