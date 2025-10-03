@@ -1,9 +1,9 @@
 import hashlib
 import os
+import argparse # -> 1. Import library argparse
 
-# --- BAGIAN BARU: Daftar direktori yang akan diabaikan ---
-# Kita definisikan sebagai konstanta di bagian atas agar mudah diubah.
-EXCLUDED_DIRS = {'.git', '__pycache__', 'node_modules', 'venv'}
+# Daftar pengecualian default
+DEFAULT_EXCLUDED_DIRS = {'.git', '__pycache__', 'node_modules', 'venv'}
 
 def calculate_md5(file_path):
     hash_md5 = hashlib.md5()
@@ -36,17 +36,12 @@ def scan_file(file_path, signatures):
         return True
     return False
 
-# --- FUNGSI SCAN_DIRECTORY (Diperbarui) ---
 def scan_directory(dir_path, signatures, excluded_dirs):
     files_scanned = 0
     threats_found = 0
     print(f"\nMemulai pemindaian di direktori: '{dir_path}'\n" + "="*40)
     
     for root, dirs, files in os.walk(dir_path):
-        
-        # --- LOGIKA BARU: Pengecualian Direktori ---
-        # Kita modifikasi 'dirs' secara "in-place" menggunakan [:]
-        # Ini akan memberitahu os.walk untuk tidak masuk ke dalam direktori yang kita ekskludekan.
         dirs[:] = [d for d in dirs if d not in excluded_dirs]
         
         for file in files:
@@ -62,18 +57,44 @@ def scan_directory(dir_path, signatures, excluded_dirs):
     print(f"  Total file dipindai: {files_scanned}")
     print(f"  Total ancaman ditemukan: {threats_found}")
 
-# --- BAGIAN EKSEKUSI UTAMA (Diperbarui) ---
+
+# --- BAGIAN EKSEKUSI UTAMA (Dirombak total dengan argparse) ---
 if __name__ == "__main__":
+    # 2. Buat parser argumen
+    parser = argparse.ArgumentParser(
+        description="Hash Shield: Memindai direktori untuk mencari file berbahaya berdasarkan signature hash."
+    )
+    
+    # 3. Tambahkan argumen yang dibutuhkan: path direktori
+    parser.add_argument(
+        "directory", 
+        help="Path ke direktori yang ingin dipindai."
+    )
+    
+    # 4. Tambahkan argumen opsional: --exclude
+    parser.add_argument(
+        "-e", "--exclude", 
+        nargs='+', 
+        default=[], 
+        help="Daftar tambahan direktori/file yang ingin diabaikan."
+    )
+    
+    # 5. Proses argumen yang diberikan pengguna
+    args = parser.parse_args()
+    
+    # 6. Jalankan logika utama
     db_file_path = os.path.join(os.path.dirname(__file__), '..', 'signatures.txt')
     malware_signatures = load_signatures(db_file_path)
     
     if malware_signatures:
         print("Database signature berhasil dimuat.")
-        target_dir = input("Masukkan path direktori yang akan di-scan (contoh: D:\\Downloads atau .): ")
-        if os.path.isdir(target_dir):
-            # Panggil fungsi scan_directory dengan daftar pengecualian
-            scan_directory(target_dir, malware_signatures, EXCLUDED_DIRS)
+        
+        # Gabungkan daftar pengecualian default dengan yang diberikan pengguna
+        excluded_items = DEFAULT_EXCLUDED_DIRS.union(set(args.exclude))
+        
+        if os.path.isdir(args.directory):
+            scan_directory(args.directory, malware_signatures, excluded_items)
         else:
-            print(f"Error: Path '{target_dir}' bukan direktori yang valid atau tidak ditemukan.")
+            print(f"Error: Path '{args.directory}' bukan direktori yang valid atau tidak ditemukan.")
     else:
         print("Tidak dapat melanjutkan pemindaian karena database signature gagal dimuat.")
