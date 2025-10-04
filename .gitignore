@@ -1,10 +1,32 @@
-# Python
+# === Default Python Ignores ===
+# Python cache files
 __pycache__/
 *.pyc
 *.pyo
 *.pyd
-.Python
+
+# Virtual Environments (Standard names)
 env/
 venv/
-pip-selfcheck.json
+.venv/
+
+# Package management
 *.egg-info/
+pip-selfcheck.json
+
+# IDE and Editor files (Optional, but recommended for clean repos)
+.idea/      # PyCharm/IntelliJ files
+.vscode/    # VS Code files
+
+# === Project-Specific Ignores (Security & Data) ===
+# File yang mengandung kunci API rahasia (PENTING!)
+.env
+.env.development
+.env.production
+.env.local
+
+# File cache hasil scanning lokal yang berisi Hash
+scan_cache.txt
+
+# Log Files
+*.log
