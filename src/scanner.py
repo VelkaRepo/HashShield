@@ -5,6 +5,8 @@ import os
 import sys
 from dotenv import load_dotenv
 from tqdm.asyncio import tqdm
+import argparse
+from pathlib import Path
 
 # =======================================================
 # --- 1. CONFIGURATION ---
@@ -195,22 +197,79 @@ def cleanup(filepaths_to_scan):
         os.remove(CACHE_FILE)
     print("\nTest files and cache removed.")
 
-if __name__ == "__main__":
+def get_all_files_recursively(directory_path):
+    """
+    Collects a list of all file paths from a starting directory, recursively.
+    """
+    print(f"[*] Searching for files in {directory_path}...")
+    filepaths = []
+    # Create a Path object for the given directory
+    p = Path(directory_path)
     
-    filepaths_to_scan = setup_test_files()
-    if not filepaths_to_scan:
+    # Check if the path exists and is a directory
+    if not p.exists() or not p.is_dir():
+        print(f"[!] Error: Path '{directory_path}' is not a valid directory.")
+        return []
+
+    # Use rglob('*') to find all items recursively.
+    # Then filter to include only files.
+    for item in p.rglob('*'):
+        if item.is_file():
+            filepaths.append(str(item))
+            
+    print(f"[*] Found {len(filepaths)} files to scan.")
+    return filepaths
+
+if __name__ == "__main__":
+    # --- 1. Setup Command-Line Argument Parser ---
+    parser = argparse.ArgumentParser(
+        description="Signature & VirusTotal Malware Scanner.",
+        epilog="Example: python scanner.py \"C:\\Users\\YourName\\Downloads\""
+    )
+    parser.add_argument(
+        "scan_path", 
+        metavar="PATH",
+        type=str,
+        help="The file or directory path to scan."
+    )
+    args = parser.parse_args()
+
+    # --- 2. Determine files to be scanned based on input path ---
+    target_path = Path(args.scan_path)
+    filepaths_to_scan = []
+
+    if not target_path.exists():
+        print(f"FATAL ERROR: The path '{target_path}' does not exist.")
         sys.exit(1)
+        
+    if target_path.is_file():
+        # If the path is a single file, scan only that file.
+        filepaths_to_scan.append(str(target_path))
+    elif target_path.is_dir():
+        # If the path is a directory, get all files recursively.
+        filepaths_to_scan = get_all_files_recursively(str(target_path))
 
-    print("Running asynchronous scan...\n")
+    # --- 3. Run the scan if files were found ---
+    if not filepaths_to_scan:
+        print("No files to scan. Exiting.")
+        sys.exit(0)
 
+    print("\nRunning asynchronous scan...\n")
+    
     # The main entry point for running async code
     results = asyncio.run(main_async_scanner(filepaths_to_scan))
 
-    # --- Print Final Results ---
+    # --- 4. Print Final Results ---
     print("\n\n--- SCAN RESULTS SUMMARY ---")
-    for filepath, is_malicious, message in results:
-        status_icon = "⚠️ MALICIOUS" if is_malicious else "✅ CLEAN"
-        print(f"[{status_icon:<12}] {filepath:<15} | {message}")
-    print("-" * 35)
-
-    cleanup(filepaths_to_scan)
+    malicious_files_count = 0
+    for filepath, is_malicious, message in sorted(results):
+        if is_malicious:
+            status_icon = "⚠️ MALICIOUS"
+            malicious_files_count += 1
+        else:
+            status_icon = "✅ CLEAN"
+        print(f"[{status_icon:<12}] {filepath:<60} | {message}")
+    
+    print("-" * 80)
+    print(f"Scan complete. Found {malicious_files_count} malicious file(s).")
+    print("-" * 80)

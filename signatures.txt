@@ -1,2 +1,1 @@
-44d88612fea8a8f36de82e1278abb02f,EICAR-Test-File-System-Specific
-5eb63bbbe01eeed093cb22bb8f5acdc3,Test-File-Aman-System-Specific
+EICAR-TEST-STRING:X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*
