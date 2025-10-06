@@ -219,14 +219,19 @@ if __name__ == "__main__":
 
     print("\n\n--- SCAN RESULTS SUMMARY ---")
     malicious_files_count = 0
-    # Sort results for consistent output, especially useful for testing
+    # Sort results for consistent output
     for filepath, is_malicious, message in sorted(results, key=lambda r: r[0]):
+        
+        # --- PERUBAHAN DI SINI: Mengganti Emoji dengan Teks ---
         if is_malicious:
-            status_icon = "⚠️ MALICIOUS"
+            status_tag = "[INFECTED]"
             malicious_files_count += 1
         else:
-            status_icon = "✅ CLEAN"
-        print(f"[{status_icon:<12}] {filepath:<60} | {message}")
+            status_tag = "[OK]      " # Ditambah spasi agar lebarnya sama
+
+        # Gabungkan tag status dan path, lalu ratakan agar '|' selalu lurus
+        left_part = f"{status_tag} {filepath}"
+        print(f"{left_part:<75} | {message}")
 
     print("-" * 80)
     print(f"Scan complete. Found {malicious_files_count} malicious file(s).")
