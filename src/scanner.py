@@ -87,15 +87,12 @@ def get_all_files_recursively(directory_path):
         return []
 
     for item in p.rglob('*'):
-        # --- PERUBAHAN DI SINI: Logika pengecualian yang lebih baik ---
-        # Check if any parent directory should be excluded
         is_in_excluded_dir = False
         for part in item.parts:
             if part in EXCLUDED_DIRS or part.endswith('.egg-info'):
                 is_in_excluded_dir = True
                 break
         
-        # Final check including file-specific exclusions
         if item.is_file() and not is_in_excluded_dir and item.name not in EXCLUDED_FILES:
             filepaths.append(str(item))
 
@@ -274,8 +271,18 @@ Features:
         else:
             status_tag = f"{C_GREEN}[OK]      {C_RESET}"
 
-        left_part = f"{status_tag} {filepath}"
-        print(f"{left_part:<85} | {message}")
+        # --- PERUBAHAN DI SINI: Logika layout adaptif ---
+        total_width = 85
+        tag_visible_len = 10
+        available_path_len = total_width - (tag_visible_len + 1)
+
+        if len(filepath) <= available_path_len:
+            left_part = f"{status_tag} {filepath}"
+            print(f"{left_part:<{total_width}} | {message}")
+        else:
+            print(f"{status_tag} {filepath}")
+            indentation = " " * (tag_visible_len + 1)
+            print(f"{indentation:<{total_width}} | {message}")
 
     print("-" * 80)
     print(f"Scan complete. Found {malicious_files_count} malicious file(s).")
