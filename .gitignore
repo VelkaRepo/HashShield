@@ -30,3 +30,8 @@ scan_cache.txt
 
 # Log Files
 *.log
+
+# Build artifacts
+build/
+dist/
+*.egg-info/

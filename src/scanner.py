@@ -7,26 +7,31 @@ import argparse
 from pathlib import Path
 from dotenv import load_dotenv
 from tqdm.asyncio import tqdm
+import colorama
 
 # =======================================================
 # 1. CONFIGURATION
 # =======================================================
 load_dotenv()
+colorama.init(autoreset=True)
 
 API_KEY = os.environ.get("VIRUSTOTAL_API_KEY")
 API_URL = "https://www.virustotal.com/api/v3/files/"
-BLOCK_SIZE = 65536  # Chunk size for file hashing
+BLOCK_SIZE = 65536
 
-# Build robust, absolute paths relative to the script's location
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 SIGNATURE_FILE = PROJECT_ROOT / "signatures.txt"
 CACHE_FILE = PROJECT_ROOT / "scan_cache.txt"
 
-# Set of directory names to exclude from scanning
 EXCLUDED_DIRS = {'.git', '.vscode', '__pycache__', 'venv', 'env', '.venv'}
+EXCLUDED_FILES = {'signatures.txt', 'scan_cache.txt'}
+
+C_RED = colorama.Fore.RED
+C_GREEN = colorama.Fore.GREEN
+C_RESET = colorama.Style.RESET_ALL
 
 if not API_KEY:
-    print("FATAL ERROR: VIRUSTOTAL_API_KEY not set in environment or .env file.")
+    print(f"{C_RED}FATAL ERROR: VIRUSTOTAL_API_KEY not set in environment or .env file.")
     sys.exit(1)
 
 # =======================================================
@@ -44,7 +49,7 @@ def load_cache():
                         file_hash, status = line.strip().split(':', 1)
                         cache[file_hash] = status
         except IOError:
-            pass  # If there's an issue, start with an empty cache
+            pass
     return cache
 
 def save_cache(cache):
@@ -73,7 +78,7 @@ def load_signatures():
     return signatures
 
 def get_all_files_recursively(directory_path):
-    """Collects file paths from a directory recursively, ignoring excluded directories."""
+    """Collects file paths from a directory recursively, applying exclusions."""
     print(f"[*] Searching for files in {directory_path}...")
     filepaths = []
     p = Path(directory_path)
@@ -82,8 +87,16 @@ def get_all_files_recursively(directory_path):
         return []
 
     for item in p.rglob('*'):
-        # Exclude file if any part of its path is in the exclusion set
-        if item.is_file() and set(item.parts).isdisjoint(EXCLUDED_DIRS):
+        # --- PERUBAHAN DI SINI: Logika pengecualian yang lebih baik ---
+        # Check if any parent directory should be excluded
+        is_in_excluded_dir = False
+        for part in item.parts:
+            if part in EXCLUDED_DIRS or part.endswith('.egg-info'):
+                is_in_excluded_dir = True
+                break
+        
+        # Final check including file-specific exclusions
+        if item.is_file() and not is_in_excluded_dir and item.name not in EXCLUDED_FILES:
             filepaths.append(str(item))
 
     print(f"[*] Found {len(filepaths)} files to scan.")
@@ -101,8 +114,7 @@ async def calculate_file_hash_async(filepath):
             with open(filepath, 'rb') as f:
                 while True:
                     data = f.read(BLOCK_SIZE)
-                    if not data:
-                        break
+                    if not data: break
                     sha256.update(data)
             return sha256.hexdigest()
         except OSError:
@@ -139,7 +151,7 @@ async def scan_file_hybrid_async(filepath, cache, session, signatures):
     headers = {"x-apikey": API_KEY, "Accept": "application/json"}
     url = f"{API_URL}{file_hash}"
     try:
-        async with session.get(url, headers=headers) as response:
+        async with session.get(url, headers=headers, timeout=20) as response:
             if response.status == 429:
                 return filepath, False, "API Error: Rate limit exceeded."
             if response.status >= 400 and response.status != 404:
@@ -190,19 +202,55 @@ async def main_async_scanner(filepaths):
             results.append(result)
     return results
 
-if __name__ == "__main__":
+def main():
+    """Main function to handle argument parsing and orchestrate the scan."""
+    description_text = """A hybrid malware scanner that uses both local signatures and the VirusTotal API.
+
+Features:
+  - Local signature scanning for instant detection of known threats.
+  - Online hash checking with VirusTotal API for in-depth analysis.
+  - Recursive directory scanning to check all files within a folder.
+  - Caching of scan results to avoid redundant API calls.
+  - Exclusion of common development directories and specific files.
+"""
+    epilog_text = f"""Examples:
+  # Scan a single file
+  hashshield C:{os.sep}path{os.sep}to{os.sep}somefile.exe
+
+  # Scan the current directory
+  hashshield .
+
+  # Scan a specific directory and force a fresh scan (ignore cache)
+  hashshield "C:{os.sep}Users{os.sep}Your Name{os.sep}Downloads" --fresh
+"""
+
     parser = argparse.ArgumentParser(
-        description="Hybrid Malware Scanner (Local Signature + VirusTotal).",
-        epilog=f"Example: python src{os.sep}scanner.py \"C:{os.sep}Users{os.sep}YourName{os.sep}Downloads\""
+        description=description_text,
+        epilog=epilog_text,
+        formatter_class=argparse.RawTextHelpFormatter
     )
+    
     parser.add_argument("scan_path", metavar="PATH", type=str, help="The file or directory path to scan.")
+    parser.add_argument(
+        "-f", "--fresh",
+        action="store_true",
+        help="Perform a fresh scan by deleting the existing cache file."
+    )
     args = parser.parse_args()
+
+    if args.fresh:
+        if CACHE_FILE.exists():
+            try:
+                CACHE_FILE.unlink()
+                print("[*] Cache file deleted for a fresh scan.")
+            except OSError as e:
+                print(f"{C_RED}[!] Warning: Could not delete cache file: {e}")
 
     target_path = Path(args.scan_path)
     filepaths_to_scan = []
 
     if not target_path.exists():
-        print(f"FATAL ERROR: The path '{target_path}' does not exist.")
+        print(f"{C_RED}FATAL ERROR: The path '{target_path}' does not exist.")
         sys.exit(1)
 
     if target_path.is_file():
@@ -219,20 +267,19 @@ if __name__ == "__main__":
 
     print("\n\n--- SCAN RESULTS SUMMARY ---")
     malicious_files_count = 0
-    # Sort results for consistent output
     for filepath, is_malicious, message in sorted(results, key=lambda r: r[0]):
-        
-        # --- PERUBAHAN DI SINI: Mengganti Emoji dengan Teks ---
         if is_malicious:
-            status_tag = "[INFECTED]"
+            status_tag = f"{C_RED}[INFECTED]{C_RESET}"
             malicious_files_count += 1
         else:
-            status_tag = "[OK]      " # Ditambah spasi agar lebarnya sama
+            status_tag = f"{C_GREEN}[OK]      {C_RESET}"
 
-        # Gabungkan tag status dan path, lalu ratakan agar '|' selalu lurus
         left_part = f"{status_tag} {filepath}"
-        print(f"{left_part:<75} | {message}")
+        print(f"{left_part:<85} | {message}")
 
     print("-" * 80)
     print(f"Scan complete. Found {malicious_files_count} malicious file(s).")
     print("-" * 80)
+
+if __name__ == "__main__":
+    main()

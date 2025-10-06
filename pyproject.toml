@@ -1,0 +1,23 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "HashShield"
+version = "1.0.0"
+description = "A hybrid malware scanner using local signatures and VirusTotal."
+readme = "README.md"
+requires-python = ">=3.8"
+dependencies = [
+    "aiohttp",
+    "python-dotenv",
+    "tqdm",
+    "colorama",
+]
+
+# --- PERUBAHAN DI SINI ---
+[project.scripts]
+hashshield = "scanner:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
