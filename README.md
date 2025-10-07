@@ -45,11 +45,11 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 
 ### For Users (Recommended)
 
-This method installs the latest stable release (`v1.0`) directly from GitHub.
+This method installs the latest stable release (`v1.1`) directly from GitHub.
 
 1.  **Install from GitHub**
     ```bash
-    pip install git+https://github.com/VelkaRepo/HashShield.git@v1.0
+    pip install git+https://github.com/VelkaRepo/HashShield.git@v1.1
     ```
 2.  **Configure API Key**
     Follow the configuration steps in the section below to set your VirusTotal API key.
