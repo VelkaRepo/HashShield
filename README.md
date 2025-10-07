@@ -89,6 +89,7 @@ Once installed, you can run `hashshield` from any directory.
 ### Basic Syntax
 ```bash
 hashshield [PATH_TO_FILE_OR_DIRECTORY] [OPTIONS]
+```
 
 ### Examples
 
