@@ -2,6 +2,7 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
+[![Latest Release](https://img.shields.io/github/v/release/VelkaRepo/HashShield)](https://github.com/VelkaRepo/HashShield/releases/latest)
 
 **HashShield** is a **hybrid command-line malware scanner** written in Python.  
 It combines fast local signature-based detection with cloud-powered hash analysis using the **VirusTotal API**, providing efficient and comprehensive file scanning capabilities.
@@ -40,25 +41,37 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 
 ---
 
-## Installation & Setup
+##  Installation & Setup
 
-1. **Clone the Repository**
+### For Users (Recommended)
+
+This method installs the latest stable release (`v1.0`) directly from GitHub.
+
+1.  **Install from GitHub**
     ```bash
-    git clone https://github.com/VelkaRepo/HashShield.git
+    pip install git+[https://github.com/VelkaRepo/HashShield.git@v1.0](https://github.com/VelkaRepo/HashShield.git@v1.0)
+    ```
+2.  **Configure API Key**
+    Follow the configuration steps below to set your VirusTotal API key.
+
+### For Developers (Contributing)
+
+This method is for those who want to modify or contribute to the source code.
+
+1.  **Clone the Repository**
+    ```bash
+    git clone [https://github.com/VelkaRepo/HashShield.git](https://github.com/VelkaRepo/HashShield.git)
     cd HashShield
     ```
-
-2. **(Optional) Create and Activate a Virtual Environment**
+2.  **(Optional) Create & Activate a Virtual Environment**
     ```bash
-    # Create venv
     python -m venv .venv
-    # Activate (Windows PowerShell)
     .\.venv\Scripts\Activate.ps1
     ```
-
-3. **Install Dependencies**
+3.  **Install Dependencies & Project in Editable Mode**
     ```bash
     pip install -r requirements.txt
+    pip install -e .
     ```
 
 4. **Configure the API Key**
