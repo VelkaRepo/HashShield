@@ -4,6 +4,7 @@ import asyncio
 import os
 import sys
 import argparse
+import logging
 from pathlib import Path
 from dotenv import load_dotenv
 from tqdm.asyncio import tqdm
@@ -31,7 +32,9 @@ C_GREEN = colorama.Fore.GREEN
 C_RESET = colorama.Style.RESET_ALL
 
 if not API_KEY:
-    print(f"{C_RED}FATAL ERROR: VIRUSTOTAL_API_KEY not set in environment or .env file.")
+    # Use logging for fatal errors as well
+    logging.basicConfig(level=logging.INFO, format='%(message)s')
+    logging.critical(f"{C_RED}FATAL ERROR: VIRUSTOTAL_API_KEY not set in environment or .env file.")
     sys.exit(1)
 
 # =======================================================
@@ -48,6 +51,7 @@ def load_cache():
                     if ':' in line:
                         file_hash, status = line.strip().split(':', 1)
                         cache[file_hash] = status
+            logging.debug(f"Cache loaded with {len(cache)} entries.")
         except IOError:
             pass
     return cache
@@ -59,7 +63,7 @@ def save_cache(cache):
             for file_hash, status in cache.items():
                 f.write(f"{file_hash}:{status}\n")
     except IOError as e:
-        print(f"Warning: Could not save cache file: {e}")
+        logging.warning(f"Could not save cache file: {e}")
 
 def load_signatures():
     """Loads malware signatures from the signature file."""
@@ -72,18 +76,18 @@ def load_signatures():
                         name, signature = line.strip().split(':', 1)
                         signatures[name] = signature
         except IOError as e:
-            print(f"Warning: Could not read signature file: {e}")
+            logging.warning(f"Could not read signature file: {e}")
     else:
-        print(f"Warning: Signature file '{SIGNATURE_FILE}' not found.")
+        logging.warning(f"Signature file '{SIGNATURE_FILE}' not found.")
     return signatures
 
 def get_all_files_recursively(directory_path):
     """Collects file paths from a directory recursively, applying exclusions."""
-    print(f"[*] Searching for files in {directory_path}...")
+    logging.info(f"Searching for files in {directory_path}...")
     filepaths = []
     p = Path(directory_path)
     if not p.is_dir():
-        print(f"[!] Error: Path '{directory_path}' is not a valid directory.")
+        logging.error(f"Path '{directory_path}' is not a valid directory.")
         return []
 
     for item in p.rglob('*'):
@@ -96,7 +100,7 @@ def get_all_files_recursively(directory_path):
         if item.is_file() and not is_in_excluded_dir and item.name not in EXCLUDED_FILES:
             filepaths.append(str(item))
 
-    print(f"[*] Found {len(filepaths)} files to scan.")
+    logging.info(f"Found {len(filepaths)} files to scan.")
     return filepaths
 
 # =======================================================
@@ -106,6 +110,7 @@ def get_all_files_recursively(directory_path):
 async def calculate_file_hash_async(filepath):
     """Calculates the SHA256 hash of a file in a separate thread."""
     def sync_hash():
+        logging.debug(f"Hashing file: {filepath}")
         sha256 = hashlib.sha256()
         try:
             with open(filepath, 'rb') as f:
@@ -121,6 +126,7 @@ async def calculate_file_hash_async(filepath):
 def scan_file_locally(filepath, signatures):
     """Scans a file against a dictionary of local string-based signatures."""
     try:
+        logging.debug(f"Performing local signature scan on: {filepath}")
         with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
             content = f.read()
             for name, signature in signatures.items():
@@ -139,16 +145,19 @@ async def scan_file_hybrid_async(filepath, cache, session, signatures):
     file_hash = await calculate_file_hash_async(filepath)
     if not file_hash:
         return filepath, False, "Error: Could not calculate file hash."
+    logging.debug(f"File hash for {os.path.basename(filepath)}: {file_hash[:10]}...")
 
     if file_hash in cache:
         status = cache[file_hash]
         is_malware = status == 'malicious'
         return filepath, is_malware, f"Result from cache: {status}"
 
+    logging.debug(f"Querying VirusTotal API for hash: {file_hash[:10]}...")
     headers = {"x-apikey": API_KEY, "Accept": "application/json"}
     url = f"{API_URL}{file_hash}"
     try:
         async with session.get(url, headers=headers, timeout=20) as response:
+            logging.debug(f"API response for {file_hash[:10]}...: Status {response.status}")
             if response.status == 429:
                 return filepath, False, "API Error: Rate limit exceeded."
             if response.status >= 400 and response.status != 404:
@@ -189,11 +198,11 @@ async def main_async_scanner(filepaths):
     signatures = load_signatures()
     results = []
 
-    print(f"[*] Loaded {len(signatures)} local signatures.")
+    logging.info(f"Loaded {len(signatures)} local signatures.")
 
     async with aiohttp.ClientSession() as session:
         tasks = [scan_file_hybrid_async(filepath, scan_cache, session, signatures) for filepath in filepaths]
-        print(f"[*] Starting hybrid scan of {len(filepaths)} files...")
+        logging.info(f"Starting hybrid scan of {len(filepaths)} files...")
         for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Scanning Files"):
             result = await coro
             results.append(result)
@@ -201,29 +210,8 @@ async def main_async_scanner(filepaths):
 
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
-    description_text = """A hybrid malware scanner that uses both local signatures and the VirusTotal API.
-
-Features:
-  - Local signature scanning for instant detection of known threats.
-  - Online hash checking with VirusTotal API for in-depth analysis.
-  - Recursive directory scanning to check all files within a folder.
-  - Caching of scan results to avoid redundant API calls.
-  - Exclusion of common development directories and specific files.
-"""
-    epilog_text = f"""Examples:
-  # Scan a single file
-  hashshield C:{os.sep}path{os.sep}to{os.sep}somefile.exe
-
-  # Scan the current directory
-  hashshield .
-
-  # Scan a specific directory and force a fresh scan (ignore cache)
-  hashshield "C:{os.sep}Users{os.sep}Your Name{os.sep}Downloads" --fresh
-"""
-
     parser = argparse.ArgumentParser(
-        description=description_text,
-        epilog=epilog_text,
+        description="A hybrid malware scanner that uses both local signatures and the VirusTotal API.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     
@@ -233,21 +221,33 @@ Features:
         action="store_true",
         help="Perform a fresh scan by deleting the existing cache file."
     )
+    # --- PERUBAHAN DI SINI: Menambahkan argumen --verbose ---
+    parser.add_argument(
+        "-v", "--verbose",
+        action="store_true",
+        help="Enable verbose (DEBUG) logging output."
+    )
     args = parser.parse_args()
+
+    # --- PERUBAHAN DI SINI: Mengatur level logging berdasarkan flag --verbose ---
+    log_level = logging.DEBUG if args.verbose else logging.INFO
+    log_format = "[%(levelname)s] %(message)s"
+    logging.basicConfig(level=log_level, format=log_format)
+
 
     if args.fresh:
         if CACHE_FILE.exists():
             try:
                 CACHE_FILE.unlink()
-                print("[*] Cache file deleted for a fresh scan.")
+                logging.info("Cache file deleted for a fresh scan.")
             except OSError as e:
-                print(f"{C_RED}[!] Warning: Could not delete cache file: {e}")
+                logging.warning(f"Could not delete cache file: {e}")
 
     target_path = Path(args.scan_path)
     filepaths_to_scan = []
 
     if not target_path.exists():
-        print(f"{C_RED}FATAL ERROR: The path '{target_path}' does not exist.")
+        logging.critical(f"{C_RED}FATAL ERROR: The path '{target_path}' does not exist.")
         sys.exit(1)
 
     if target_path.is_file():
@@ -256,10 +256,10 @@ Features:
         filepaths_to_scan = get_all_files_recursively(str(target_path))
 
     if not filepaths_to_scan:
-        print("No files to scan. Exiting.")
+        logging.info("No files to scan. Exiting.")
         sys.exit(0)
 
-    print("\nRunning scan...\n")
+    print("\nRunning scan...\n") # This print can stay for clear separation before the progress bar
     results = asyncio.run(main_async_scanner(filepaths_to_scan))
 
     print("\n\n--- SCAN RESULTS SUMMARY ---")
@@ -271,7 +271,6 @@ Features:
         else:
             status_tag = f"{C_GREEN}[OK]      {C_RESET}"
 
-        # --- PERUBAHAN DI SINI: Logika layout adaptif ---
         total_width = 85
         tag_visible_len = 10
         available_path_len = total_width - (tag_visible_len + 1)
