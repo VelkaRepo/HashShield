@@ -89,3 +89,30 @@ Once installed, you can run `hashshield` from any directory.
 ### Basic Syntax
 ```bash
 hashshield [PATH_TO_FILE_OR_DIRECTORY] [OPTIONS]
+
+### Examples
+
+- **View available options**
+    ```bash
+    hashshield -h
+    ```
+
+- **Scan a single file**
+    ```bash
+    hashshield "C:\Users\User\Downloads\suspicious.exe"
+    ```
+
+- **Scan the current directory**
+    ```bash
+    hashshield .
+    ```
+
+- **Scan another directory and force a fresh scan (ignore cache)**
+    ```bash
+    hashshield "D:\My Projects" --fresh
+    ```
+
+- **Scan with verbose output**
+    ```bash
+    hashshield "C:\Samples" --verbose
+    ```
