@@ -49,7 +49,7 @@ This method installs the latest stable release (`v1.0`) directly from GitHub.
 
 1.  **Install from GitHub**
     ```bash
-    pip install git+[https://github.com/VelkaRepo/HashShield.git@v1.0](https://github.com/VelkaRepo/HashShield.git@v1.0)
+    pip install git+https://github.com/VelkaRepo/HashShield.git@v1.0
     ```
 2.  **Configure API Key**
     Follow the configuration steps in the section below to set your VirusTotal API key.
