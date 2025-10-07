@@ -1,49 +1,91 @@
-# ✨ Hash Shield
+# HashShield v1.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
 
-A simple, fast, signature-based malware scanner written in Python. Scans directories recursively and matches file hashes against a custom signature database.
+**HashShield** is a **hybrid command-line malware scanner** written in Python.  
+It combines fast local signature-based detection with cloud-powered hash analysis using the **VirusTotal API**, providing efficient and comprehensive file scanning capabilities.
 
-## 🎯 Features
+---
 
-- **Recursive Directory Scanning**: Scans a target folder and all its subfolders.
-- **MD5 Hash-Based Detection**: Matches file hashes against a provided signature database.
-- **Flexible Signature DB**: Easily add or update malware signatures in a simple `.txt` file.
-- **Simple & Fast**: Built with standard Python libraries for maximum compatibility and speed.
+## Key Features
 
-## 🚀 Getting Started
+- **Hybrid Scanning**  
+  Performs local signature-based detection for known threats, followed by SHA-256 hash verification via the VirusTotal API for deeper analysis.
 
-### Prerequisites
-- Python 3.6+
+- **Asynchronous and Fast**  
+  Built with `asyncio` and `aiohttp` to handle multiple concurrent scans efficiently, enhanced with a progress bar using `tqdm`.
 
-### Installation
-1.  Clone the repository:
+- **Recursive Directory Scanning**  
+  Capable of scanning individual files or entire directories, including all subfolders.
+
+- **Smart Caching System**  
+  Saves online scan results to `scan_cache.txt` to avoid redundant API calls, significantly improving subsequent scan performance.
+
+- **Flexible Exclusion Rules**  
+  Automatically skips common development directories (`.git`, `__pycache__`, `venv`) and internal files (`signatures.txt`, `scan_cache.txt`).
+
+- **Professional CLI Interface**  
+  Provides clean, color-coded terminal output using `colorama`, along with detailed help messages (`-h`) for ease of use.
+
+- **Installable as a Python Package**  
+  Configured with `pyproject.toml` and can be installed globally, making the `hashshield` command accessible from anywhere in your system.
+
+---
+
+## Requirements
+
+- Python **3.8+**
+- A [VirusTotal API key](https://www.virustotal.com/gui/join-us) (free for personal use)
+
+---
+
+## Installation & Setup
+
+1. **Clone the Repository**
     ```bash
-    # Replace with your actual repository URL
-    git clone [https://github.com/VelkaRepo/HashShield.git](https://github.com/VelkaRepo/HashShield.git)
+    git clone https://github.com/VelkaRepo/HashShield.git
+    cd HashShield
     ```
-2.  Navigate to the project directory:
+
+2. **(Optional) Create and Activate a Virtual Environment**
     ```bash
-    cd Hash-Shield
+    # Create venv
+    python -m venv .venv
+    # Activate (Windows PowerShell)
+    .\.venv\Scripts\Activate.ps1
     ```
 
-## 💻 Usage
+3. **Install Dependencies**
+    ```bash
+    pip install -r requirements.txt
+    ```
 
-Run the scanner from the project's root directory:
+4. **Configure the API Key**
+    You must provide your VirusTotal API key. Choose **one** of the following methods:
+
+    - **Recommended:** Create a `.env` file inside the `src/` directory:
+      ```env
+      VIRUSTOTAL_API_KEY="YOUR_API_KEY_HERE"
+      ```
+
+    - Or set it as a **system environment variable**:
+      ```bash
+      setx VIRUSTOTAL_API_KEY "YOUR_API_KEY_HERE"
+      ```
+
+5. **Install HashShield as a Global Command**
+    ```bash
+    pip install -e .
+    ```
+    The `-e` (editable) flag allows you to modify the source code without reinstalling.
+
+---
+
+## Usage
+
+Once installed, you can run `hashshield` from any directory.
+
+### Basic Syntax
 ```bash
-python src/scanner.py
-
-The script will then prompt you to enter the path of the directory you want to scan. To scan the current directory, simply enter . and press Enter.
-
-Example Ouput:
-Signature database loaded successfully.
-Enter the directory path to scan (e.g., C:\Downloads or .): .
-
-Starting scan in directory: '.'
-========================================
-[!!!] MALWARE DETECTED: File '.\file_tes_eicar.txt' matches 'EICAR-Test-File-System-Specific'
-[!!!] MALWARE DETECTED: File '.\file_tes_aman.txt' matches 'Test-File-Aman-System-Specific'
-========================================
-Scan Summary:
-  Total files scanned: 48
-  Threats found: 2
+hashshield [PATH_TO_FILE_OR_DIRECTORY] [OPTIONS]
