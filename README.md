@@ -60,7 +60,7 @@ This method is for those who want to modify or contribute to the source code.
 
 1.  **Clone the Repository**
     ```bash
-    git clone [https://github.com/VelkaRepo/HashShield.git](https://github.com/VelkaRepo/HashShield.git)
+    git clone https://github.com/VelkaRepo/HashShield.git
     cd HashShield
     ```
 2.  **(Optional) Create & Activate a Virtual Environment**
