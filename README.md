@@ -1,4 +1,4 @@
-# HashShield v1.1
+# HashShield v1.2.0
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -11,7 +11,6 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 
 ## Key Features
 
-## 🎯 Key Features
 
 - **YARA-Powered Engine** 
   Utilizes a powerful YARA engine for local scanning, replacing the previous simple-string search. This allows for complex and professional-grade signature detection.
@@ -50,7 +49,7 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 
 ### For Users (Recommended)
 
-This method installs the latest stable release (`v1.1`) directly from GitHub.
+This method installs the latest stable release (`v1.2.0`) directly from GitHub.
 
 1.  **Install from GitHub**
     ```bash
