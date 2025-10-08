@@ -315,7 +315,6 @@ async def main_async_scanner(filepaths, args):
 
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
-    # --- PERUBAHAN DI SINI: Memperbarui deskripsi dan contoh penggunaan ---
     description_text = """An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.
 
 To customize exclusions, create a `.shieldignore` file in the directory you are scanning.
