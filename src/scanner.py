@@ -316,14 +316,17 @@ async def main_async_scanner(filepaths, args):
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
     # --- PERUBAHAN DI SINI: Memperbarui deskripsi dan contoh penggunaan ---
-    description_text = """An interactive, hybrid malware scanner that uses both local/remote YARA rules and the VirusTotal API.
+    description_text = """An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.
+
+To customize exclusions, create a `.shieldignore` file in the directory you are scanning.
 
 Features:
   - Interactive prompts for handling threats (Quarantine, Delete, Ignore).
-  - Dynamic YARA scanning using rules from a URL (--yara-url).
+  - Dynamic YARA scanning via URL (`--yara-url`).
+  - Custom Exclusions via a `.shieldignore` file (supports wildcards).
   - Local YARA rule scanning for offline detection.
   - Online hash checking with VirusTotal API for in-depth analysis.
-  - Recursive directory scanning, result caching, and flexible exclusions.
+  - Smart Caching of scan results to avoid redundant API calls.
 """
 
     epilog_text = f"""Examples:
