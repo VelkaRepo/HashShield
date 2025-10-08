@@ -13,29 +13,26 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 ## Key Features
 
 
-- **YARA-Powered Engine** 
-  Utilizes a powerful YARA engine for local scanning, replacing the previous simple-string search. This allows for complex and professional-grade signature detection.
+- **Interactive Threat Response** 
+  Prompts the user for action (Quarantine, Delete, or Ignore) upon detecting a threat, giving you full control over how to handle malicious files.
+
+- **Dynamic YARA Rules**
+  Supports scanning with remote YARA rules by providing a URL with the `--yara-url` flag, ensuring you can always use the latest threat intelligence.
+
+- **YARA-Powered Engine**
+  Utilizes a powerful YARA engine for local scanning, allowing for complex and professional-grade signature detection.
 
 - **Hybrid Scanning Engine**
-  Combines local YARA rule detection with cloud-based hash checking via the VirusTotal API for comprehensive analysis.
-
-- **Custom Exclusions (`.shieldignore`)**
-  Allows users to create a `.shieldignore` file to specify custom file and directory patterns (including wildcards) to exclude from scans.
+  Combines local YARA rule detection with cloud-based hash checking via the VirusTotal API.
 
 - **Asynchronous & Fast**
-  Built on `asyncio` for high-performance concurrent scanning of multiple files, complete with a `tqdm` progress bar.
+  Built on `asyncio` for high-performance concurrent scanning.
 
-- **Recursive Directory Scanning**
-  Capable of scanning a single file or an entire directory and all its sub-folders.
-
-- **Smart Caching System**
-  Avoids redundant API calls by caching previous online scan results, dramatically speeding up subsequent scans.
+- **ustom Exclusions (`.shieldignore`)**
+  Allows users to create a `.shieldignore` file to specify custom exclusion patterns.
 
 - **Professional CLI**
-  Features a clean, colored (`colorama`), and adaptive multi-line report layout, complete with flags (`--fresh`, `--verbose`) and a detailed help message (`-h`).
-
-- **Installable as a Python Package**
-  Packaged as a standard Python application, making the `hashshield` command available system-wide after a simple installation.
+  A fully installable command (`hashshield`) with a polished, adaptive, and colored report layout.
 
 ---
 
@@ -129,6 +126,11 @@ hashshield [PATH_TO_FILE_OR_DIRECTORY] [OPTIONS]
 - **Scan another directory and force a fresh scan (ignore cache)**
     ```bash
     hashshield "D:\My Projects" --fresh
+    ```
+
+- **Perform a fresh scan using a remote YARA rule set**
+    ```bash
+    hashshield "D:\Downloads" --fresh --yara-url https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar
     ```
 
 - **Scan with verbose output**

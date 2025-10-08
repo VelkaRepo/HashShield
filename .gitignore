@@ -5,6 +5,9 @@ __pycache__/
 *.pyo
 *.pyd
 
+# Ignore quarantine contents
+quarantine/*
+
 # Virtual Environments (Standard names)
 env/
 venv/

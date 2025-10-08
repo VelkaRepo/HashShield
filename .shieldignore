@@ -2,6 +2,9 @@
 README.md
 LICENSE
 
+# Ignore quarantine contents
+quarantine/*
+
 # Ignore environment file by name
 .env
-__init__.py 
+__init__.py

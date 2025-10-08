@@ -1,10 +1,9 @@
-rule EICAR_Test_String
+rule EICAR_Test_String : eicar antivirus_test test_file
 {
     meta:
         description = "This is the standard EICAR antivirus test string."
         author = "HashShield Project"
         version = "1.1"
-        tags = "eicar" "antivirus_test" "test_file"
 
     strings:
         $eicar_text = "X5O!P%@AP[4\\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
