@@ -5,10 +5,19 @@ import os
 import sys
 import argparse
 import logging
+import fnmatch
 from pathlib import Path
 from dotenv import load_dotenv
 from tqdm.asyncio import tqdm
 import colorama
+
+# --- YARA INTEGRATION ---
+try:
+    import yara
+except ImportError:
+    print("\n[FATAL ERROR] 'yara-python' library not found.")
+    print("Please install it by running: pip install yara-python\n")
+    sys.exit(1)
 
 # =======================================================
 # 1. CONFIGURATION
@@ -21,18 +30,17 @@ API_URL = "https://www.virustotal.com/api/v3/files/"
 BLOCK_SIZE = 65536
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-SIGNATURE_FILE = PROJECT_ROOT / "signatures.txt"
+YARA_RULES_FILE = PROJECT_ROOT / "rules.yara"
 CACHE_FILE = PROJECT_ROOT / "scan_cache.txt"
 
 EXCLUDED_DIRS = {'.git', '.vscode', '__pycache__', 'venv', 'env', '.venv'}
-EXCLUDED_FILES = {'signatures.txt', 'scan_cache.txt'}
+EXCLUDED_FILES = {'rules.yara', 'scan_cache.txt'}
 
 C_RED = colorama.Fore.RED
 C_GREEN = colorama.Fore.GREEN
-C_RESET = colorama.Style.RESET_ALL
+C_RESET = colorama.Style.RESET_ALL # <-- FIX: Add the missing C_RESET definition
 
 if not API_KEY:
-    # Use logging for fatal errors as well
     logging.basicConfig(level=logging.INFO, format='%(message)s')
     logging.critical(f"{C_RED}FATAL ERROR: VIRUSTOTAL_API_KEY not set in environment or .env file.")
     sys.exit(1)
@@ -65,21 +73,35 @@ def save_cache(cache):
     except IOError as e:
         logging.warning(f"Could not save cache file: {e}")
 
-def load_signatures():
-    """Loads malware signatures from the signature file."""
-    signatures = {}
-    if SIGNATURE_FILE.exists():
+def load_yara_rules():
+    """Loads and compiles YARA rules from the rules file."""
+    if YARA_RULES_FILE.exists():
         try:
-            with open(SIGNATURE_FILE, 'r') as f:
-                for line in f:
-                    if ':' in line:
-                        name, signature = line.strip().split(':', 1)
-                        signatures[name] = signature
-        except IOError as e:
-            logging.warning(f"Could not read signature file: {e}")
+            logging.debug(f"Compiling YARA rules from {YARA_RULES_FILE}")
+            rules = yara.compile(filepath=str(YARA_RULES_FILE))
+            return rules
+        except yara.Error as e:
+            logging.critical(f"{C_RED}FATAL ERROR: Could not compile YARA rules: {e}")
+            sys.exit(1)
     else:
-        logging.warning(f"Signature file '{SIGNATURE_FILE}' not found.")
-    return signatures
+        logging.warning(f"YARA rules file '{YARA_RULES_FILE}' not found. Local scanning will be disabled.")
+        return None
+
+def load_ignore_patterns(scan_path):
+    """Looks for a .shieldignore file in the scan path and loads the patterns."""
+    ignore_file = Path(scan_path) / ".shieldignore"
+    patterns = []
+    if ignore_file.is_file():
+        logging.info(f"Found '{ignore_file.name}', loading custom ignore patterns.")
+        try:
+            with open(ignore_file, 'r', encoding='utf-8') as f:
+                for line in f:
+                    stripped_line = line.strip()
+                    if stripped_line and not stripped_line.startswith('#'):
+                        patterns.append(stripped_line)
+        except IOError as e:
+            logging.warning(f"Could not read {ignore_file.name}: {e}")
+    return patterns
 
 def get_all_files_recursively(directory_path):
     """Collects file paths from a directory recursively, applying exclusions."""
@@ -90,15 +112,32 @@ def get_all_files_recursively(directory_path):
         logging.error(f"Path '{directory_path}' is not a valid directory.")
         return []
 
+    user_ignore_patterns = load_ignore_patterns(directory_path)
+
     for item in p.rglob('*'):
+        if not item.is_file():
+            continue
+
         is_in_excluded_dir = False
         for part in item.parts:
             if part in EXCLUDED_DIRS or part.endswith('.egg-info'):
                 is_in_excluded_dir = True
                 break
         
-        if item.is_file() and not is_in_excluded_dir and item.name not in EXCLUDED_FILES:
-            filepaths.append(str(item))
+        if item.name in EXCLUDED_FILES or is_in_excluded_dir:
+            continue
+
+        is_user_ignored = False
+        relative_path = item.relative_to(p).as_posix()
+        for pattern in user_ignore_patterns:
+            if fnmatch.fnmatch(item.name, pattern) or fnmatch.fnmatch(relative_path, pattern):
+                is_user_ignored = True
+                break
+        
+        if is_user_ignored:
+            continue
+            
+        filepaths.append(str(item))
 
     logging.info(f"Found {len(filepaths)} files to scan.")
     return filepaths
@@ -123,24 +162,25 @@ async def calculate_file_hash_async(filepath):
             return None
     return await asyncio.to_thread(sync_hash)
 
-def scan_file_locally(filepath, signatures):
-    """Scans a file against a dictionary of local string-based signatures."""
+def scan_file_yara(filepath, yara_rules):
+    """Scans a file against a set of compiled YARA rules."""
+    if not yara_rules:
+        return False, None
     try:
-        logging.debug(f"Performing local signature scan on: {filepath}")
-        with open(filepath, 'r', encoding='utf-8', errors='ignore') as f:
-            content = f.read()
-            for name, signature in signatures.items():
-                if signature in content:
-                    return True, name
-    except (IOError, OSError):
+        logging.debug(f"Performing YARA scan on: {filepath}")
+        matches = yara_rules.match(filepath=filepath)
+        if matches:
+            return True, matches[0].rule
+    except yara.Error:
+        logging.debug(f"YARA error scanning file (likely permissions): {filepath}")
         return False, None
     return False, None
 
-async def scan_file_hybrid_async(filepath, cache, session, signatures):
-    """Scans a file using local signatures first, then VirusTotal API."""
-    is_malicious_local, detected_by = scan_file_locally(filepath, signatures)
-    if is_malicious_local:
-        return filepath, True, f"DANGER! Locally detected by signature: {detected_by}"
+async def scan_file_hybrid_async(filepath, cache, session, yara_rules):
+    """Scans a file using YARA rules first, then VirusTotal API."""
+    is_malicious_yara, rule_name = scan_file_yara(filepath, yara_rules)
+    if is_malicious_yara:
+        return filepath, True, f"DANGER! Locally detected by YARA rule: {rule_name}"
 
     file_hash = await calculate_file_hash_async(filepath)
     if not file_hash:
@@ -195,13 +235,16 @@ async def scan_file_hybrid_async(filepath, cache, session, signatures):
 async def main_async_scanner(filepaths):
     """Runs all file scans concurrently and displays progress."""
     scan_cache = load_cache()
-    signatures = load_signatures()
+    yara_rules = load_yara_rules()
     results = []
 
-    logging.info(f"Loaded {len(signatures)} local signatures.")
+    if yara_rules:
+        # A bit of a hack to count rules, but works for yara-python's object
+        rule_count = sum(1 for _ in yara_rules)
+        logging.info(f"Loaded {rule_count} YARA rules.")
 
     async with aiohttp.ClientSession() as session:
-        tasks = [scan_file_hybrid_async(filepath, scan_cache, session, signatures) for filepath in filepaths]
+        tasks = [scan_file_hybrid_async(filepath, scan_cache, session, yara_rules) for filepath in filepaths]
         logging.info(f"Starting hybrid scan of {len(filepaths)} files...")
         for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Scanning Files"):
             result = await coro
@@ -211,29 +254,18 @@ async def main_async_scanner(filepaths):
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
     parser = argparse.ArgumentParser(
-        description="A hybrid malware scanner that uses both local signatures and the VirusTotal API.",
+        description="A hybrid malware scanner using YARA rules and the VirusTotal API.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     
     parser.add_argument("scan_path", metavar="PATH", type=str, help="The file or directory path to scan.")
-    parser.add_argument(
-        "-f", "--fresh",
-        action="store_true",
-        help="Perform a fresh scan by deleting the existing cache file."
-    )
-    # --- PERUBAHAN DI SINI: Menambahkan argumen --verbose ---
-    parser.add_argument(
-        "-v", "--verbose",
-        action="store_true",
-        help="Enable verbose (DEBUG) logging output."
-    )
+    parser.add_argument("-f", "--fresh", action="store_true", help="Perform a fresh scan by deleting the existing cache file.")
+    parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging output.")
     args = parser.parse_args()
-
-    # --- PERUBAHAN DI SINI: Mengatur level logging berdasarkan flag --verbose ---
+    
     log_level = logging.DEBUG if args.verbose else logging.INFO
-    log_format = "[%(levelname)s] %(message)s"
+    log_format = "[%(levelname)s] %(message)s" if args.verbose else "[*] %(message)s"
     logging.basicConfig(level=log_level, format=log_format)
-
 
     if args.fresh:
         if CACHE_FILE.exists():
@@ -259,7 +291,7 @@ def main():
         logging.info("No files to scan. Exiting.")
         sys.exit(0)
 
-    print("\nRunning scan...\n") # This print can stay for clear separation before the progress bar
+    print("\nRunning scan...\n")
     results = asyncio.run(main_async_scanner(filepaths_to_scan))
 
     print("\n\n--- SCAN RESULTS SUMMARY ---")

@@ -1,0 +1,7 @@
+# Ignore documentation
+README.md
+LICENSE
+
+# Ignore environment file by name
+.env
+__init__.py 

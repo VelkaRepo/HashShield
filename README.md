@@ -11,26 +11,31 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 
 ## Key Features
 
-- **Hybrid Scanning**  
-  Performs local signature-based detection for known threats, followed by SHA-256 hash verification via the VirusTotal API for deeper analysis.
+## 🎯 Key Features
 
-- **Asynchronous and Fast**  
-  Built with `asyncio` and `aiohttp` to handle multiple concurrent scans efficiently, enhanced with a progress bar using `tqdm`.
+- **YARA-Powered Engine** 
+  Utilizes a powerful YARA engine for local scanning, replacing the previous simple-string search. This allows for complex and professional-grade signature detection.
 
-- **Recursive Directory Scanning**  
-  Capable of scanning individual files or entire directories, including all subfolders.
+- **Hybrid Scanning Engine**
+  Combines local YARA rule detection with cloud-based hash checking via the VirusTotal API for comprehensive analysis.
 
-- **Smart Caching System**  
-  Saves online scan results to `scan_cache.txt` to avoid redundant API calls, significantly improving subsequent scan performance.
+- **Custom Exclusions (`.shieldignore`)**
+  Allows users to create a `.shieldignore` file to specify custom file and directory patterns (including wildcards) to exclude from scans.
 
-- **Flexible Exclusion Rules**  
-  Automatically skips common development directories (`.git`, `__pycache__`, `venv`) and internal files (`signatures.txt`, `scan_cache.txt`).
+- **Asynchronous & Fast**
+  Built on `asyncio` for high-performance concurrent scanning of multiple files, complete with a `tqdm` progress bar.
 
-- **Professional CLI Interface**  
-  Provides clean, color-coded terminal output using `colorama`, along with detailed help messages (`-h`) for ease of use.
+- **Recursive Directory Scanning**
+  Capable of scanning a single file or an entire directory and all its sub-folders.
 
-- **Installable as a Python Package**  
-  Configured with `pyproject.toml` and can be installed globally, making the `hashshield` command accessible from anywhere in your system.
+- **Smart Caching System**
+  Avoids redundant API calls by caching previous online scan results, dramatically speeding up subsequent scans.
+
+- **Professional CLI**
+  Features a clean, colored (`colorama`), and adaptive multi-line report layout, complete with flags (`--fresh`, `--verbose`) and a detailed help message (`-h`).
+
+- **Installable as a Python Package**
+  Packaged as a standard Python application, making the `hashshield` command available system-wide after a simple installation.
 
 ---
 
@@ -49,7 +54,7 @@ This method installs the latest stable release (`v1.1`) directly from GitHub.
 
 1.  **Install from GitHub**
     ```bash
-    pip install git+https://github.com/VelkaRepo/HashShield.git@v1.1
+    pip install git+https://github.com/VelkaRepo/HashShield.git@v1.2.0
     ```
 2.  **Configure API Key**
     Follow the configuration steps in the section below to set your VirusTotal API key.
