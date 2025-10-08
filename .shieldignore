@@ -1,6 +1,7 @@
 # Ignore documentation
 README.md
 LICENSE
+create_test_files.py
 
 # Ignore quarantine contents
 quarantine/*
