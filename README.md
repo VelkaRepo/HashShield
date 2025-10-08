@@ -1,4 +1,4 @@
-# HashShield v1.2.0
+# HashShield
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
@@ -28,7 +28,7 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 - **Asynchronous & Fast**
   Built on `asyncio` for high-performance concurrent scanning.
 
-- **ustom Exclusions (`.shieldignore`)**
+- **Custom Exclusions (`.shieldignore`)**
   Allows users to create a `.shieldignore` file to specify custom exclusion patterns.
 
 - **Professional CLI**
