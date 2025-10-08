@@ -7,6 +7,7 @@ __pycache__/
 
 # Test files created by script
 file_tes_*.txt
+create_test_files.py
 
 # Ignore quarantine contents
 quarantine/*
