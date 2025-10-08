@@ -13,6 +13,7 @@ dependencies = [
     "python-dotenv",
     "tqdm",
     "colorama",
+    "yara-python",
 ]
 
 # --- PERUBAHAN DI SINI ---
