@@ -140,7 +140,7 @@ hashshield [PATH_TO_FILE_OR_DIRECTORY] [OPTIONS]
 
 ---
 
-## 🧪 Testing
+## Testing
 
 To test the scanner's detection capabilities, you first need to generate a set of standard and custom test files. A helper script is provided for this purpose.
 
