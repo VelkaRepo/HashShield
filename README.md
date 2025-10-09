@@ -137,3 +137,14 @@ hashshield [PATH_TO_FILE_OR_DIRECTORY] [OPTIONS]
     ```bash
     hashshield "C:\Samples" --verbose
     ```
+
+---
+
+## 🧪 Testing
+
+To test the scanner's detection capabilities, you first need to generate a set of standard and custom test files. A helper script is provided for this purpose.
+
+In the project's root directory, run:
+```bash
+python create_test_files.py
+```
