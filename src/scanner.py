@@ -54,6 +54,7 @@ if not API_KEY:
 # =======================================================
 # 2. HELPER FUNCTIONS
 # =======================================================
+
 def load_cache():
     """Loads the scan cache from a file."""
     cache = {}
@@ -267,17 +268,14 @@ async def upload_file_to_virustotal(filepath, session):
     headers = {"x-apikey": API_KEY}
     data = aiohttp.FormData()
     try:
-        data.add_field(
-            'file',
-            open(filepath, 'rb'),
-            filename=os.path.basename(filepath)
-        )
+        data.add_field('file', open(filepath, 'rb'), filename=os.path.basename(filepath))
     except IOError as e:
         logging.error(f"Could not open file for upload {filepath}: {e}")
         return "Error opening file for upload"
 
     try:
-        async with session.post(API_URL, headers=headers, data=data, timeout=300) as response:
+        upload_url = API_URL.rstrip('/')
+        async with session.post(upload_url, headers=headers, data=data, timeout=300) as response:
             response.raise_for_status()
             logging.debug(f"File {os.path.basename(filepath)} uploaded successfully. VT is analyzing it.")
             return "File uploaded for analysis"
@@ -328,7 +326,6 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
 
             elif response.status == 404:
                 if args.upload:
-                    # This function is async, so we must await it.
                     report_msg = await upload_file_to_virustotal(filepath, session)
                 else:
                     report_msg = "File hash not in VirusTotal DB. Assumed clean."
@@ -365,7 +362,6 @@ async def main_async_scanner(filepaths, args):
         logging.info(f"Loaded {rule_count} YARA rules for this session.")
 
     async with aiohttp.ClientSession() as session:
-        # --- PERUBAHAN DI SINI ---
         tasks = [scan_file_hybrid_async(filepath, scan_cache, session, yara_rules, args) for filepath in filepaths]
         logging.info(f"Starting hybrid scan of {len(filepaths)} files...")
         for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Scanning Files"):
