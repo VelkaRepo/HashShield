@@ -430,19 +430,16 @@ def main():
     
     infected_results = []
     clean_results = []
-    # --- PERUBAHAN DI SINI: Tambahkan daftar untuk file yang diunggah ---
     uploaded_results = []
     
     for filepath, is_malicious, message in results:
         if is_malicious:
             infected_results.append((filepath, message))
-        # Cek apakah pesan mengindikasikan file diunggah atau status penting lainnya
         elif "uploaded" in message.lower() or "error" in message.lower() or "limit" in message.lower():
             uploaded_results.append((filepath, message))
         else:
             clean_results.append(filepath)
 
-    # Cetak file yang terinfeksi (jika ada)
     if infected_results:
         print(f"\n{C_YELLOW}--- DETECTED THREATS ({len(infected_results)}) ---{C_RESET}")
         take_action_for_all = None
@@ -480,7 +477,6 @@ def main():
             else:
                 logging.info(f"Unknown action. Ignored file: {filepath}")
 
-    # --- PERUBAHAN DI SINI: Tambahkan bagian baru untuk status unggahan ---
     if uploaded_results:
         print(f"\n{C_YELLOW}--- UPLOAD STATUS ({len(uploaded_results)}) ---{C_RESET}")
         for filepath, message in sorted(uploaded_results):
