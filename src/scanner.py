@@ -329,8 +329,34 @@ async def main_async_scanner(filepaths, args):
 
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
+    
+    description_text = """An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.
+
+To customize exclusions for a specific scan, create a `.shieldignore` file in the target directory.
+
+Features:
+  - Interactive prompts for handling threats (Quarantine, Delete, Ignore).
+  - Dynamic YARA scanning via URL (`--yara-url`).
+  - Custom Exclusions via a `.shieldignore` file (supports wildcards).
+  - Local YARA rule scanning for offline detection.
+  - Online hash checking with VirusTotal API for in-depth analysis.
+  - Smart Caching of scan results to avoid redundant API calls.
+"""
+
+    epilog_text = f"""Examples:
+  # Scan the current directory. Will prompt for action if threats are found.
+  hashshield .
+
+  # Scan a specific directory with verbose logging
+  hashshield "C:{os.sep}Users{os.sep}Your Name{os.sep}Downloads" -v
+
+  # Perform a fresh scan using a remote YARA rule set
+  hashshield . --fresh --yara-url https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar
+"""
+    
     parser = argparse.ArgumentParser(
-        description="A hybrid malware scanner using YARA rules and the VirusTotal API.",
+        description=description_text,
+        epilog=epilog_text,
         formatter_class=argparse.RawTextHelpFormatter
     )
     
@@ -352,6 +378,11 @@ def main():
         default=None,
         help="Use YARA rules from a URL instead of the local rules.yara file."
     )
+    parser.add_argument(
+    "-U", "--upload",
+    action="store_true",
+    help="Upload files for analysis if their hash is not found on VirusTotal."
+    )
     args = parser.parse_args()
     
     log_level = logging.DEBUG if args.verbose else logging.INFO
@@ -368,7 +399,6 @@ def main():
 
     target_path = Path(args.scan_path)
     filepaths_to_scan = []
-    skipped_count = 0
 
     if not target_path.exists():
         logging.critical(f"{C_RED}FATAL ERROR: The path '{target_path}' does not exist.")
@@ -410,14 +440,32 @@ def main():
             if take_action_for_all:
                 action = take_action_for_all
             else:
-                prompt = ( f"\n  Action for this file? ... " ) # Disingkat untuk kejelasan
+                prompt = (
+                    f"\n  Action for this file? "
+                    f"({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | "
+                    f"({C_YELLOW}A{C_RESET})ll Quarantine, A({C_RED}l{C_RESET})l Delete, All ({C_GREEN}S{C_RESET})kip? "
+                )
                 action = input(prompt).lower()
             if action == 'q':
                 quarantine_file(filepath, message)
             elif action == 'd':
                 delete_file(filepath, message)
-            # ... (sisa logika interaktif)
-    
+            elif action == 'i':
+                logging.info(f"Ignored file: {filepath}")
+            elif action == 'a':
+                logging.info("Applying 'Quarantine' to all subsequent detections.")
+                take_action_for_all = 'q'
+                quarantine_file(filepath, message)
+            elif action == 'l':
+                logging.info("Applying 'Delete' to all subsequent detections.")
+                take_action_for_all = 'd'
+                delete_file(filepath, message)
+            elif action == 's':
+                logging.info("Ignoring all subsequent detections.")
+                take_action_for_all = 'i'
+            else:
+                logging.info(f"Unknown action. Ignored file: {filepath}")
+
     terminal_width = shutil.get_terminal_size((80, 24)).columns
     line_separator = "-" * terminal_width
     print(f"\n{line_separator}")
@@ -430,7 +478,6 @@ def main():
     if not args.verbose and len(clean_results) > 0:
         print(f"(Run with --verbose to see a list of {len(clean_results)} clean files)")
     print(line_separator)
-
 
 if __name__ == "__main__":
     main()
