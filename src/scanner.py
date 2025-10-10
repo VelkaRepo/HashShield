@@ -54,7 +54,7 @@ if not API_KEY:
 # =======================================================
 # 2. HELPER FUNCTIONS
 # =======================================================
-
+# ... (Semua helper functions dari load_cache hingga get_all_files_recursively tetap sama) ...
 def load_cache():
     """Loads the scan cache from a file."""
     cache = {}
@@ -133,22 +133,17 @@ def get_all_files_recursively(directory_path, excluded_extensions):
     filepaths = []
     skipped_by_ext_count = 0
     p = Path(directory_path)
-
     if not p.is_dir():
         logging.error(f"Path '{directory_path}' is not a valid directory.")
         return [], 0
-
     excluded_ext_set = {ext.lower() for ext in excluded_extensions}
     user_ignore_patterns = load_ignore_patterns(directory_path)
-
     for item in p.rglob('*'):
         if not item.is_file():
             continue
-
         if item.suffix.lower() in excluded_ext_set:
             skipped_by_ext_count += 1
             continue
-
         is_user_ignored = False
         relative_path = item.relative_to(p).as_posix()
         for pattern in user_ignore_patterns:
@@ -157,7 +152,6 @@ def get_all_files_recursively(directory_path, excluded_extensions):
                 break
         if is_user_ignored:
             continue
-
         is_hard_excluded = False
         if item.name in EXCLUDED_FILES:
             is_hard_excluded = True
@@ -168,9 +162,7 @@ def get_all_files_recursively(directory_path, excluded_extensions):
                     break
         if is_hard_excluded:
             continue
-            
         filepaths.append(str(item))
-
     logging.info(f"Found {len(filepaths)} files to scan.")
     return filepaths, skipped_by_ext_count
 
@@ -223,6 +215,7 @@ def delete_file(filepath, reason):
 # =======================================================
 # 3. CORE SCANNING LOGIC
 # =======================================================
+# ... (calculate_file_hash_async dan scan_file_yara tetap sama) ...
 async def calculate_file_hash_async(filepath):
     """Calculates the SHA256 hash of a file in a separate thread."""
     def sync_hash():
@@ -342,7 +335,7 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
 # =======================================================
 # 4. MAIN EXECUTION
 # =======================================================
-
+# ... (main_async_scanner tidak berubah) ...
 async def main_async_scanner(filepaths, args):
     """Runs all file scans concurrently and displays progress."""
     scan_cache = load_cache()
@@ -437,16 +430,20 @@ def main():
     
     infected_results = []
     clean_results = []
+    # --- PERUBAHAN DI SINI: Tambahkan daftar untuk file yang diunggah ---
+    uploaded_results = []
     
     for filepath, is_malicious, message in results:
         if is_malicious:
             infected_results.append((filepath, message))
+        # Cek apakah pesan mengindikasikan file diunggah atau status penting lainnya
+        elif "uploaded" in message.lower() or "error" in message.lower() or "limit" in message.lower():
+            uploaded_results.append((filepath, message))
         else:
             clean_results.append(filepath)
 
-    if not infected_results:
-        print(f"\n{C_GREEN}Scan complete. No threats found in {len(clean_results)} files.{C_RESET}")
-    else:
+    # Cetak file yang terinfeksi (jika ada)
+    if infected_results:
         print(f"\n{C_YELLOW}--- DETECTED THREATS ({len(infected_results)}) ---{C_RESET}")
         take_action_for_all = None
         for i, (filepath, message) in enumerate(sorted(infected_results)):
@@ -483,6 +480,13 @@ def main():
             else:
                 logging.info(f"Unknown action. Ignored file: {filepath}")
 
+    # --- PERUBAHAN DI SINI: Tambahkan bagian baru untuk status unggahan ---
+    if uploaded_results:
+        print(f"\n{C_YELLOW}--- UPLOAD STATUS ({len(uploaded_results)}) ---{C_RESET}")
+        for filepath, message in sorted(uploaded_results):
+            print(f"  - {os.path.basename(filepath):<30} : {message}")
+
+    # Cetak ringkasan akhir
     terminal_width = shutil.get_terminal_size((80, 24)).columns
     line_separator = "-" * terminal_width
     print(f"\n{line_separator}")
@@ -492,6 +496,9 @@ def main():
         print(f"[*] Note: {skipped_count} file(s) were skipped due to --exclude-ext flag ({excluded_str}).")
 
     print(f"Scan complete. Found {len(infected_results)} malicious file(s).")
+    if not infected_results and not uploaded_results:
+         print(f"All {len(clean_results)} files scanned are clean.")
+    
     if not args.verbose and len(clean_results) > 0:
         print(f"(Run with --verbose to see a list of {len(clean_results)} clean files)")
     print(line_separator)
