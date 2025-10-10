@@ -251,6 +251,46 @@ def scan_file_yara(filepath, yara_rules):
         return False, None
     return False, None
 
+async def upload_file_to_virustotal(filepath, session):
+    """Uploads a file to VirusTotal for a new analysis."""
+    logging.info(f"File hash not found on VirusTotal. Attempting to upload: {os.path.basename(filepath)}")
+
+    # Langkah 1: Cek ukuran file sebelum mengunggah
+    try:
+        file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
+        if file_size_mb > 32:
+            logging.warning(f"File skipped: {os.path.basename(filepath)} exceeds 32MB size limit for public API.")
+            return "File too large to upload (>32MB)"
+    except OSError as e:
+        logging.error(f"Could not get size of file {filepath}: {e}")
+        return f"Error accessing file: {e}"
+
+    # Langkah 2: Siapkan data untuk permintaan POST multipart/form-data
+    headers = {"x-apikey": API_KEY}
+    data = aiohttp.FormData()
+    try:
+        data.add_field(
+            'file',
+            open(filepath, 'rb'),
+            filename=os.path.basename(filepath)
+        )
+    except IOError as e:
+        logging.error(f"Could not open file for upload {filepath}: {e}")
+        return "Error opening file for upload"
+
+    # Langkah 3: Lakukan permintaan POST secara asinkron
+    try:
+        # Berikan timeout yang lebih lama untuk unggahan
+        async with session.post(API_URL, headers=headers, data=data, timeout=300) as response:
+            response.raise_for_status()
+            logging.debug(f"File {os.path.basename(filepath)} uploaded successfully. VirusTotal is analyzing it.")
+            # Respon sukses tidak memberikan hasil scan, hanya ID analisis.
+            # Untuk saat ini, kita cukup melaporkan bahwa file berhasil diunggah.
+            return "File uploaded for analysis"
+    except Exception as e:
+        logging.error(f"Failed to upload file {filepath}: {e}")
+        return f"Upload failed: {e}"
+
 async def scan_file_hybrid_async(filepath, cache, session, yara_rules):
     """Scans a file using YARA rules first, then VirusTotal API."""
     is_malicious_yara, rule_name = scan_file_yara(filepath, yara_rules)
