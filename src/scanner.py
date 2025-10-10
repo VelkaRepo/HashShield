@@ -54,7 +54,6 @@ if not API_KEY:
 # =======================================================
 # 2. HELPER FUNCTIONS
 # =======================================================
-
 def load_cache():
     """Loads the scan cache from a file."""
     cache = {}
@@ -131,12 +130,12 @@ def get_all_files_recursively(directory_path, excluded_extensions):
     """Collects file paths from a directory recursively, applying exclusions and counting skipped files."""
     logging.info(f"Searching for files in {directory_path}...")
     filepaths = []
-    skipped_by_ext_count = 0  # Counter untuk file yang diskip
+    skipped_by_ext_count = 0
     p = Path(directory_path)
 
     if not p.is_dir():
         logging.error(f"Path '{directory_path}' is not a valid directory.")
-        return [], 0 # Return 0 for skipped count
+        return [], 0
 
     excluded_ext_set = {ext.lower() for ext in excluded_extensions}
     user_ignore_patterns = load_ignore_patterns(directory_path)
@@ -172,9 +171,8 @@ def get_all_files_recursively(directory_path, excluded_extensions):
         filepaths.append(str(item))
 
     logging.info(f"Found {len(filepaths)} files to scan.")
-    return filepaths, skipped_by_ext_count # Return count
+    return filepaths, skipped_by_ext_count
 
-# (Sisa dari Helper Functions dan Core Scanning Logic tidak berubah)
 def quarantine_file(filepath, reason):
     """Moves a file to the quarantine directory, renames it, and logs the action."""
     try:
@@ -221,6 +219,9 @@ def delete_file(filepath, reason):
         logging.error(f"Failed to delete file {filepath}: {e}")
         return False
 
+# =======================================================
+# 3. CORE SCANNING LOGIC
+# =======================================================
 async def calculate_file_hash_async(filepath):
     """Calculates the SHA256 hash of a file in a separate thread."""
     def sync_hash():
@@ -250,12 +251,10 @@ def scan_file_yara(filepath, yara_rules):
         logging.debug(f"YARA error scanning file (likely permissions): {filepath}")
         return False, None
     return False, None
-
+    
 async def upload_file_to_virustotal(filepath, session):
     """Uploads a file to VirusTotal for a new analysis."""
     logging.info(f"File hash not found on VirusTotal. Attempting to upload: {os.path.basename(filepath)}")
-
-    # Langkah 1: Cek ukuran file sebelum mengunggah
     try:
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
         if file_size_mb > 32:
@@ -265,7 +264,6 @@ async def upload_file_to_virustotal(filepath, session):
         logging.error(f"Could not get size of file {filepath}: {e}")
         return f"Error accessing file: {e}"
 
-    # Langkah 2: Siapkan data untuk permintaan POST multipart/form-data
     headers = {"x-apikey": API_KEY}
     data = aiohttp.FormData()
     try:
@@ -278,20 +276,16 @@ async def upload_file_to_virustotal(filepath, session):
         logging.error(f"Could not open file for upload {filepath}: {e}")
         return "Error opening file for upload"
 
-    # Langkah 3: Lakukan permintaan POST secara asinkron
     try:
-        # Berikan timeout yang lebih lama untuk unggahan
         async with session.post(API_URL, headers=headers, data=data, timeout=300) as response:
             response.raise_for_status()
-            logging.debug(f"File {os.path.basename(filepath)} uploaded successfully. VirusTotal is analyzing it.")
-            # Respon sukses tidak memberikan hasil scan, hanya ID analisis.
-            # Untuk saat ini, kita cukup melaporkan bahwa file berhasil diunggah.
+            logging.debug(f"File {os.path.basename(filepath)} uploaded successfully. VT is analyzing it.")
             return "File uploaded for analysis"
     except Exception as e:
         logging.error(f"Failed to upload file {filepath}: {e}")
         return f"Upload failed: {e}"
 
-async def scan_file_hybrid_async(filepath, cache, session, yara_rules):
+async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
     """Scans a file using YARA rules first, then VirusTotal API."""
     is_malicious_yara, rule_name = scan_file_yara(filepath, yara_rules)
     if is_malicious_yara:
@@ -312,12 +306,15 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules):
             logging.debug(f"API response for {file_hash[:10]}...: Status {response.status}")
             if response.status == 429:
                 return filepath, False, "API Error: Rate limit exceeded."
+            
             if response.status >= 400 and response.status != 404:
                 response.raise_for_status()
-            data = await response.json()
+            
             is_malicious = False
             report_msg = "Scan complete. Clean."
+
             if response.status == 200:
+                data = await response.json()
                 stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
                 malicious_count = stats.get("malicious", 0)
                 if malicious_count > 0:
@@ -325,11 +322,19 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules):
                     report_msg = f"DANGER! Detected by {malicious_count} vendors on VirusTotal."
                 else:
                     report_msg = "Scan complete. Clean on VirusTotal."
+                
+                cache[file_hash] = 'malicious' if is_malicious else 'clean'
+                save_cache(cache)
+
             elif response.status == 404:
-                report_msg = "File hash not in VirusTotal DB. Assumed clean."
-            cache[file_hash] = 'malicious' if is_malicious else 'clean'
-            save_cache(cache)
+                if args.upload:
+                    # This function is async, so we must await it.
+                    report_msg = await upload_file_to_virustotal(filepath, session)
+                else:
+                    report_msg = "File hash not in VirusTotal DB. Assumed clean."
+            
             return filepath, is_malicious, report_msg
+
     except aiohttp.ClientResponseError as e:
         return filepath, False, f"HTTP Error {e.status}: {e.message}"
     except asyncio.TimeoutError:
@@ -360,7 +365,8 @@ async def main_async_scanner(filepaths, args):
         logging.info(f"Loaded {rule_count} YARA rules for this session.")
 
     async with aiohttp.ClientSession() as session:
-        tasks = [scan_file_hybrid_async(filepath, scan_cache, session, yara_rules) for filepath in filepaths]
+        # --- PERUBAHAN DI SINI ---
+        tasks = [scan_file_hybrid_async(filepath, scan_cache, session, yara_rules, args) for filepath in filepaths]
         logging.info(f"Starting hybrid scan of {len(filepaths)} files...")
         for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Scanning Files"):
             result = await coro
@@ -369,34 +375,8 @@ async def main_async_scanner(filepaths, args):
 
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
-    
-    description_text = """An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.
-
-To customize exclusions for a specific scan, create a `.shieldignore` file in the target directory.
-
-Features:
-  - Interactive prompts for handling threats (Quarantine, Delete, Ignore).
-  - Dynamic YARA scanning via URL (`--yara-url`).
-  - Custom Exclusions via a `.shieldignore` file (supports wildcards).
-  - Local YARA rule scanning for offline detection.
-  - Online hash checking with VirusTotal API for in-depth analysis.
-  - Smart Caching of scan results to avoid redundant API calls.
-"""
-
-    epilog_text = f"""Examples:
-  # Scan the current directory. Will prompt for action if threats are found.
-  hashshield .
-
-  # Scan a specific directory with verbose logging
-  hashshield "C:{os.sep}Users{os.sep}Your Name{os.sep}Downloads" -v
-
-  # Perform a fresh scan using a remote YARA rule set
-  hashshield . --fresh --yara-url https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar
-"""
-    
     parser = argparse.ArgumentParser(
-        description=description_text,
-        epilog=epilog_text,
+        description="A hybrid malware scanner using YARA rules and the VirusTotal API.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     
@@ -419,9 +399,9 @@ Features:
         help="Use YARA rules from a URL instead of the local rules.yara file."
     )
     parser.add_argument(
-    "-U", "--upload",
-    action="store_true",
-    help="Upload files for analysis if their hash is not found on VirusTotal."
+        "--upload",
+        action="store_true",
+        help="Upload files for analysis if their hash is not found on VirusTotal."
     )
     args = parser.parse_args()
     
@@ -439,6 +419,7 @@ Features:
 
     target_path = Path(args.scan_path)
     filepaths_to_scan = []
+    skipped_count = 0
 
     if not target_path.exists():
         logging.critical(f"{C_RED}FATAL ERROR: The path '{target_path}' does not exist.")
@@ -518,6 +499,7 @@ Features:
     if not args.verbose and len(clean_results) > 0:
         print(f"(Run with --verbose to see a list of {len(clean_results)} clean files)")
     print(line_separator)
+
 
 if __name__ == "__main__":
     main()
