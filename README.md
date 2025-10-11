@@ -31,6 +31,9 @@ It combines fast local signature-based detection with cloud-powered hash analysi
 - **Custom Exclusions (`.shieldignore`)**
   Allows users to create a `.shieldignore` file to specify custom exclusion patterns.
 
+- **On-Demand File Uploads**
+  If a file's hash is unknown to VirusTotal, the `--upload` flag can be used to submit it for a full, new analysis. HashShield will wait for the result.  
+
 - **Professional CLI**
   A fully installable command (`hashshield`) with a polished, adaptive, and colored report layout.
 

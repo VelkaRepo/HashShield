@@ -409,8 +409,35 @@ async def main_async_scanner(filepaths, args):
 
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
+    
+    description_text = """An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.
+
+To customize exclusions, create a `.shieldignore` file in the directory you are scanning.
+
+Features:
+  - Interactive prompts for handling threats (Quarantine, Delete, Ignore).
+  - Dynamic YARA scanning via URL (`--yara-url`).
+  - On-demand file uploads for unknown hashes (`--upload`).
+  - Custom Exclusions via a `.shieldignore` file (supports wildcards).
+  - Local YARA rule scanning for offline detection.
+  - Online hash checking with VirusTotal API for in-depth analysis.
+  - Smart Caching of scan results to avoid redundant API calls.
+"""
+
+    epilog_text = f"""Examples:
+  # Scan the current directory and be prompted for action on threats.
+  hashshield .
+
+  # Scan a directory and automatically upload any unknown files for analysis.
+  hashshield "C:{os.sep}Users{os.sep}Your Name{os.sep}Downloads" --upload
+
+  # Perform a fresh scan using a remote YARA rule set with verbose logging.
+  hashshield . --fresh --yara-url [https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar](https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar) -v
+"""
+    
     parser = argparse.ArgumentParser(
-        description="An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.",
+        description=description_text,
+        epilog=epilog_text,
         formatter_class=argparse.RawTextHelpFormatter
     )
     
@@ -435,7 +462,7 @@ def main():
     parser.add_argument(
         "--upload",
         action="store_true",
-        help="Upload files for analysis if their hash is not found on VirusTotal."
+        help="Upload a file for analysis if its hash is not found. The tool will wait for the result."
     )
     args = parser.parse_args()
     
