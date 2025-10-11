@@ -249,6 +249,7 @@ def scan_file_yara(filepath, yara_rules):
 async def upload_file_to_virustotal(filepath, session):
     """Uploads a file to VirusTotal for a new analysis."""
     logging.info(f"File hash not found on VirusTotal. Attempting to upload: {os.path.basename(filepath)}")
+
     try:
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
         if file_size_mb > 32:
