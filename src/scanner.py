@@ -30,6 +30,7 @@ colorama.init(autoreset=True)
 
 API_KEY = os.environ.get("VIRUSTOTAL_API_KEY")
 API_URL = "https://www.virustotal.com/api/v3/files/"
+ANALYSIS_URL = "https://www.virustotal.com/api/v3/analyses/"
 BLOCK_SIZE = 65536
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
@@ -54,7 +55,6 @@ if not API_KEY:
 # =======================================================
 # 2. HELPER FUNCTIONS
 # =======================================================
-# ... (Semua helper functions dari load_cache hingga get_all_files_recursively tetap sama) ...
 def load_cache():
     """Loads the scan cache from a file."""
     cache = {}
@@ -215,7 +215,6 @@ def delete_file(filepath, reason):
 # =======================================================
 # 3. CORE SCANNING LOGIC
 # =======================================================
-# ... (calculate_file_hash_async dan scan_file_yara tetap sama) ...
 async def calculate_file_hash_async(filepath):
     """Calculates the SHA256 hash of a file in a separate thread."""
     def sync_hash():
@@ -247,35 +246,92 @@ def scan_file_yara(filepath, yara_rules):
     return False, None
     
 async def upload_file_to_virustotal(filepath, session):
-    """Uploads a file to VirusTotal for a new analysis."""
-    logging.info(f"File hash not found on VirusTotal. Attempting to upload: {os.path.basename(filepath)}")
-
+    """Uploads a file to VirusTotal and returns the analysis ID."""
+    logging.info(f"File hash not found. Uploading for analysis: {os.path.basename(filepath)}")
     try:
         file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
         if file_size_mb > 32:
-            logging.warning(f"File skipped: {os.path.basename(filepath)} exceeds 32MB size limit for public API.")
-            return "File too large to upload (>32MB)"
+            logging.warning(f"File skipped: {os.path.basename(filepath)} exceeds 32MB size limit.")
+            return None, "File too large to upload (>32MB)"
     except OSError as e:
         logging.error(f"Could not get size of file {filepath}: {e}")
-        return f"Error accessing file: {e}"
-
+        return None, f"Error accessing file: {e}"
     headers = {"x-apikey": API_KEY}
     data = aiohttp.FormData()
     try:
         data.add_field('file', open(filepath, 'rb'), filename=os.path.basename(filepath))
     except IOError as e:
         logging.error(f"Could not open file for upload {filepath}: {e}")
-        return "Error opening file for upload"
-
+        return None, "Error opening file for upload"
     try:
         upload_url = API_URL.rstrip('/')
         async with session.post(upload_url, headers=headers, data=data, timeout=300) as response:
             response.raise_for_status()
-            logging.debug(f"File {os.path.basename(filepath)} uploaded successfully. VT is analyzing it.")
-            return "File uploaded for analysis"
+            result = await response.json()
+            analysis_id = result.get('data', {}).get('id')
+            logging.debug(f"Upload successful. Analysis ID: {analysis_id}")
+            return analysis_id, "File uploaded, awaiting analysis..."
     except Exception as e:
         logging.error(f"Failed to upload file {filepath}: {e}")
-        return f"Upload failed: {e}"
+        return None, f"Upload failed: {e}"
+
+# --- PERUBAHAN DI SINI: Perbaikan fungsi polling ---
+async def get_analysis_result(analysis_id, session):
+    """Polls VirusTotal for a completed analysis report."""
+    if not analysis_id:
+        return None
+    logging.info(f"Waiting for analysis results for ID: {analysis_id[:15]}...")
+    headers = {"x-apikey": API_KEY}
+    url = f"{ANALYSIS_URL}{analysis_id}"
+    
+    max_retries = 20
+    poll_interval = 15
+    
+    # Add a short, initial grace period for the API.
+    await asyncio.sleep(5)
+    
+    for attempt in range(max_retries):
+        try:
+            async with session.get(url, headers=headers, timeout=20) as response:
+                if response.status == 404 and attempt < 3: # Allow a few 404s at the start
+                    logging.debug("Analysis object not yet available, retrying...")
+                    await asyncio.sleep(poll_interval)
+                    continue
+                response.raise_for_status()
+                result = await response.json()
+                status = result.get('data', {}).get('attributes', {}).get('status')
+                logging.debug(f"Polling attempt {attempt + 1}/{max_retries}. Status: {status}")
+                if status == 'completed':
+                    logging.info(f"Analysis complete for ID: {analysis_id[:15]}")
+                    return result
+                else:
+                    await asyncio.sleep(poll_interval)
+        except Exception as e:
+            logging.error(f"Error while polling for results: {e}")
+            return None
+            
+    logging.warning(f"Analysis timed out for ID: {analysis_id[:15]}")
+    return None
+
+# --- PERUBAHAN DI SINI: Fungsi helper baru untuk memproses laporan ---
+def _process_analysis_data(data):
+    """Processes a VirusTotal analysis report (from file OR analysis endpoint)."""
+    if not data:
+        return False, "Analysis timed out or failed."
+
+    # The key is 'stats' for analysis reports, and 'last_analysis_stats' for file reports.
+    attributes = data.get("data", {}).get("attributes", {})
+    stats = attributes.get("stats") or attributes.get("last_analysis_stats", {})
+    malicious_count = stats.get("malicious", 0)
+    
+    if malicious_count > 0:
+        is_malicious = True
+        report_msg = f"DANGER! Detected by {malicious_count} vendors on VirusTotal."
+    else:
+        is_malicious = False
+        report_msg = "Scan complete. Clean on VirusTotal."
+        
+    return is_malicious, report_msg
 
 async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
     """Scans a file using YARA rules first, then VirusTotal API."""
@@ -295,52 +351,43 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
     url = f"{API_URL}{file_hash}"
     try:
         async with session.get(url, headers=headers, timeout=20) as response:
-            logging.debug(f"API response for {file_hash[:10]}...: Status {response.status}")
-            if response.status == 429:
-                return filepath, False, "API Error: Rate limit exceeded."
-            
             if response.status >= 400 and response.status != 404:
                 response.raise_for_status()
             
-            is_malicious = False
-            report_msg = "Scan complete. Clean."
-
+            is_malicious, report_msg = False, ""
+            
             if response.status == 200:
-                data = await response.json()
-                stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
-                malicious_count = stats.get("malicious", 0)
-                if malicious_count > 0:
-                    is_malicious = True
-                    report_msg = f"DANGER! Detected by {malicious_count} vendors on VirusTotal."
-                else:
-                    report_msg = "Scan complete. Clean on VirusTotal."
+                file_report = await response.json()
+                is_malicious, report_msg = _process_analysis_data(file_report)
                 
-                cache[file_hash] = 'malicious' if is_malicious else 'clean'
-                save_cache(cache)
-
             elif response.status == 404:
                 if args.upload:
-                    report_msg = await upload_file_to_virustotal(filepath, session)
+                    analysis_id, temp_message = await upload_file_to_virustotal(filepath, session)
+                    if analysis_id:
+                        analysis_report = await get_analysis_result(analysis_id, session)
+                        is_malicious, report_msg = _process_analysis_data(analysis_report)
+                    else:
+                        report_msg = temp_message
                 else:
                     report_msg = "File hash not in VirusTotal DB. Assumed clean."
             
+            if report_msg and "DANGER" not in report_msg:
+                cache[file_hash] = 'clean'
+            elif "DANGER" in report_msg:
+                 cache[file_hash] = 'malicious'
+            save_cache(cache)
+            
             return filepath, is_malicious, report_msg
 
-    except aiohttp.ClientResponseError as e:
-        return filepath, False, f"HTTP Error {e.status}: {e.message}"
-    except asyncio.TimeoutError:
-        return filepath, False, "Network Error: Request timed out."
     except Exception as e:
         return filepath, False, f"An unexpected error occurred: {e}"
 
 # =======================================================
 # 4. MAIN EXECUTION
 # =======================================================
-# ... (main_async_scanner tidak berubah) ...
 async def main_async_scanner(filepaths, args):
     """Runs all file scans concurrently and displays progress."""
     scan_cache = load_cache()
-    
     yara_rules = None
     if args.yara_url:
         rules_content = await fetch_yara_rules_from_url(args.yara_url)
@@ -348,13 +395,10 @@ async def main_async_scanner(filepaths, args):
             yara_rules = load_yara_rules(source=rules_content)
     else:
         yara_rules = load_yara_rules(filepath=YARA_RULES_FILE)
-
     results = []
-
     if yara_rules:
         rule_count = sum(1 for _ in yara_rules)
         logging.info(f"Loaded {rule_count} YARA rules for this session.")
-
     async with aiohttp.ClientSession() as session:
         tasks = [scan_file_hybrid_async(filepath, scan_cache, session, yara_rules, args) for filepath in filepaths]
         logging.info(f"Starting hybrid scan of {len(filepaths)} files...")
@@ -366,7 +410,7 @@ async def main_async_scanner(filepaths, args):
 def main():
     """Main function to handle argument parsing and orchestrate the scan."""
     parser = argparse.ArgumentParser(
-        description="A hybrid malware scanner using YARA rules and the VirusTotal API.",
+        description="An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.",
         formatter_class=argparse.RawTextHelpFormatter
     )
     
@@ -436,7 +480,7 @@ def main():
     for filepath, is_malicious, message in results:
         if is_malicious:
             infected_results.append((filepath, message))
-        elif "uploaded" in message.lower() or "error" in message.lower() or "limit" in message.lower():
+        elif "uploaded" in message.lower() or "error" in message.lower() or "limit" in message.lower() or "timed out" in message.lower():
             uploaded_results.append((filepath, message))
         else:
             clean_results.append(filepath)
@@ -479,11 +523,10 @@ def main():
                 logging.info(f"Unknown action. Ignored file: {filepath}")
 
     if uploaded_results:
-        print(f"\n{C_YELLOW}--- UPLOAD STATUS ({len(uploaded_results)}) ---{C_RESET}")
+        print(f"\n{C_YELLOW}--- OTHER STATUSES ({len(uploaded_results)}) ---{C_RESET}")
         for filepath, message in sorted(uploaded_results):
             print(f"  - {os.path.basename(filepath):<30} : {message}")
 
-    # Cetak ringkasan akhir
     terminal_width = shutil.get_terminal_size((80, 24)).columns
     line_separator = "-" * terminal_width
     print(f"\n{line_separator}")
