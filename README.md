@@ -141,6 +141,10 @@ hashshield [PATH_TO_FILE_OR_DIRECTORY] [OPTIONS]
     hashshield "C:\Samples" --verbose
     ```
 
+**Scan and upload unknown files**
+    ```bash
+    hashshield "C:\Users\Your Name\Downloads" --upload
+    ```
 ---
 
 ## Testing

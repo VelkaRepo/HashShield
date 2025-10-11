@@ -275,7 +275,6 @@ async def upload_file_to_virustotal(filepath, session):
         logging.error(f"Failed to upload file {filepath}: {e}")
         return None, f"Upload failed: {e}"
 
-# --- PERUBAHAN DI SINI: Perbaikan fungsi polling ---
 async def get_analysis_result(analysis_id, session):
     """Polls VirusTotal for a completed analysis report."""
     if not analysis_id:
@@ -287,7 +286,6 @@ async def get_analysis_result(analysis_id, session):
     max_retries = 20
     poll_interval = 15
     
-    # Add a short, initial grace period for the API.
     await asyncio.sleep(5)
     
     for attempt in range(max_retries):
@@ -313,13 +311,11 @@ async def get_analysis_result(analysis_id, session):
     logging.warning(f"Analysis timed out for ID: {analysis_id[:15]}")
     return None
 
-# --- PERUBAHAN DI SINI: Fungsi helper baru untuk memproses laporan ---
 def _process_analysis_data(data):
     """Processes a VirusTotal analysis report (from file OR analysis endpoint)."""
     if not data:
         return False, "Analysis timed out or failed."
 
-    # The key is 'stats' for analysis reports, and 'last_analysis_stats' for file reports.
     attributes = data.get("data", {}).get("attributes", {})
     stats = attributes.get("stats") or attributes.get("last_analysis_stats", {})
     malicious_count = stats.get("malicious", 0)
