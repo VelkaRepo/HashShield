@@ -54,3 +54,6 @@ virus.txt
 # 3. Temporary Test Scripts (Optional, keep if you want)
 # inspect_db.py
 # hunt_kali_threats.py
+hunt_kali_threats.py
+inspect_db.py
+temp_scans/

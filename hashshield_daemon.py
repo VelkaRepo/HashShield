@@ -4,7 +4,7 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# Configuration
+# --- KONFIGURASI ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(current_dir, 'src', '.env')
 load_dotenv(env_path)
@@ -17,17 +17,16 @@ except ImportError:
     sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
     from shield_engine import download_clamav_hashes
 
-# --- ADVANCED SCANNING LOGIC ---
+# --- LOGIKA SCANNING (DIPERBARUI UNTUK MENGEMBALIKAN NAMA) ---
 def scan_file_robust(filepath, hash_db, yara_engine):
     """
-    1. Checks MD5/SHA256 against Hash DB (Fast Lane)
-    2. Checks content against NDB YARA Rules (Smart Lane)
+    Mengembalikan NAMA virus jika terdeteksi, atau None jika bersih.
     """
     if not os.path.exists(filepath):
-        return False
+        return None
 
     try:
-        # --- 1. HASH SCAN (O(1) Speed) ---
+        # 1. HASH CHECK (Fast Lane)
         md5_hasher = hashlib.md5()
         sha256_hasher = hashlib.sha256()
         
@@ -39,37 +38,39 @@ def scan_file_robust(filepath, hash_db, yara_engine):
         file_md5 = md5_hasher.hexdigest()
         file_sha256 = sha256_hasher.hexdigest()
         
+        # Return nama virus yang spesifik dari database
         if file_md5 in hash_db:
-            print(f"[ALERT] HASH MATCH (MD5): {hash_db[file_md5]}")
-            return True
+            name = hash_db[file_md5]
+            print(f"[ALERT] HASH MATCH (MD5): {name}")
+            return name
+            
         if file_sha256 in hash_db:
-            print(f"[ALERT] HASH MATCH (SHA256): {hash_db[file_sha256]}")
-            return True
+            name = hash_db[file_sha256]
+            print(f"[ALERT] HASH MATCH (SHA256): {name}")
+            return name
 
-        # --- 2. HEURISTIC SCAN (NDB / YARA) ---
+        # 2. HEURISTIC CHECK (Smart Lane)
         if yara_engine:
             try:
-                # We scan the file using the compiled NDB patterns
                 matches = yara_engine.match(filepath)
                 if matches:
-                    # If any string matched, we have a hit
-                    # Since we bundled them into one rule, we check the 'strings' that matched
-                    print(f"[ALERT] HEURISTIC MATCH (NDB): Pattern detected in {filepath}")
-                    return True
+                    # Kita bisa mengambil nama rule yang cocok
+                    # Karena kita menumpuknya dalam satu rule besar, ini mungkin hanya nama rule utama
+                    # Tapi ini membuktikan NDB bekerja.
+                    print(f"[ALERT] HEURISTIC MATCH (NDB) in {filepath}")
+                    return "Heuristic.ClamAV.NDB.Match"
             except Exception as e:
                 print(f"[!] YARA Scan Error: {e}")
 
     except Exception as e:
         print(f"Error scanning file: {e}")
         
-    return False
+    return None
 
-# --- MAIN SERVER ---
+# --- SERVER UTAMA ---
 if __name__ == "__main__":
     print(f"--- HashShield Daemon v2.0 (Hybrid Engine) ---")
     
-    # LOAD BOTH ENGINES
-    # Note: We now unpack two return values
     db_hashes, db_heuristics = download_clamav_hashes()
     
     if not db_hashes:
@@ -94,9 +95,14 @@ if __name__ == "__main__":
 
             print(f"Scanning: {filepath}")
 
-            # Use the new robust scan function
-            if scan_file_robust(filepath, db_hashes, db_heuristics):
-                conn.send(b"INFECTED")
+            # --- PERBAIKAN UTAMA DI SINI ---
+            # Kita tangkap nama virusnya
+            detection_name = scan_file_robust(filepath, db_hashes, db_heuristics)
+            
+            if detection_name:
+                # Kita kirim format "INFECTED:NamaVirus"
+                response = f"INFECTED:{detection_name}".encode()
+                conn.send(response)
             else:
                 conn.send(b"CLEAN")
                 
