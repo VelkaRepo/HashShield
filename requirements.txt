@@ -6,7 +6,6 @@ certifi==2025.11.12
 charset-normalizer==3.4.4
 colorama==0.4.6
 frozenlist==1.8.0
--e git+https://github.com/VelkaRepo/HashShield@a1a0875b8d16876127c4b1d99682185fe5c7bd13#egg=HashShield
 idna==3.10
 multidict==6.7.0
 propcache==0.4.0
