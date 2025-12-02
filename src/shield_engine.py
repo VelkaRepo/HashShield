@@ -3,6 +3,8 @@ import io
 import os
 import requests
 import glob
+import subprocess
+import time
 import yara  # pip install yara-python
 
 # --- CONFIGURATION ---
@@ -10,6 +12,9 @@ import yara  # pip install yara-python
 # Warning: This will consume 1.5GB+ RAM and take ~60 seconds to compile.
 NDB_SIGNATURE_LIMIT = 0
 CHUNK_SIZE = 8000 # Safety limit per YARA rule (Max is usually 10k)
+
+# NEW: Direct download from your stable GitHub Release
+DB_URL = "https://github.com/VelkaRepo/HashShield/releases/download/v2.0-beta/main.cvd"
 
 def format_clamav_to_yara(hex_string):
     """
@@ -22,6 +27,30 @@ def format_clamav_to_yara(hex_string):
         return " ".join(chunks)
     except:
         return None
+
+def update_database(local_path):
+    """
+    Forces a fresh download of the database using system wget.
+    """
+    print(f"[Shield Engine] Starting update from {DB_URL}...")
+    
+    command = [
+        "wget",
+        "--user-agent=Mozilla/5.0",
+        "-O", local_path,
+        DB_URL
+    ]
+    
+    try:
+        subprocess.run(command, check=True)
+        print("[Shield Engine] Update successful!")
+        return True
+    except subprocess.CalledProcessError:
+        print("[Shield Engine] Update failed. Check internet connection.")
+        return False
+    except FileNotFoundError:
+        print("[Shield Engine] Error: 'wget' is not installed on this system.")
+        return False
 
 def download_clamav_hashes():
     current_dir = os.path.dirname(os.path.abspath(__file__))
@@ -40,15 +69,22 @@ def download_clamav_hashes():
     # Open the first rule
     yara_rules_source += f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n"
 
-    # 1. LOAD DATA
+    # 1. CHECK / DOWNLOAD DATA
+    if not os.path.exists(local_db_path):
+        print("[Shield Engine] Local DB missing. Initializing first download...")
+        success = update_database(local_db_path)
+        if not success:
+            print("[Shield Engine] CRITICAL: Could not obtain database.")
+            return {}, None
+
+    # LOAD THE FILE
     data = None
-    if os.path.exists(local_db_path):
-        print(f"[Shield Engine] Found local database: {local_db_path}")
-        try:
-            with open(local_db_path, 'rb') as f:
-                data = f.read()
-        except Exception as e:
-            print(f"[Shield Engine] Error reading local file: {e}")
+    print(f"[Shield Engine] Found local database: {local_db_path}")
+    try:
+        with open(local_db_path, 'rb') as f:
+            data = f.read()
+    except Exception as e:
+        print(f"[Shield Engine] Error reading local file: {e}")
 
     if data:
         try:
