@@ -41,3 +41,16 @@ scan_cache.txt
 build/
 dist/
 *.egg-info/
+# === HashShield v2.0 Specifics ===
+# 1. Heavy Databases (Too big for GitHub)
+src/main.cvd
+src/*.hdb
+src/*.ndb
+
+# 2. Live Malware Zone (DO NOT UPLOAD MALWARE TO GITHUB)
+live_malware_test/
+virus.txt
+
+# 3. Temporary Test Scripts (Optional, keep if you want)
+# inspect_db.py
+# hunt_kali_threats.py

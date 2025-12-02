@@ -8,6 +8,8 @@ import logging
 import fnmatch
 import shutil
 import textwrap
+import socket
+import subprocess
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -33,6 +35,9 @@ API_URL = "https://www.virustotal.com/api/v3/files/"
 ANALYSIS_URL = "https://www.virustotal.com/api/v3/analyses/"
 BLOCK_SIZE = 65536
 
+# Load Port from .env or default to 65432
+DAEMON_PORT = int(os.environ.get("SHIELD_DAEMON_PORT", 65432))
+
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 YARA_RULES_FILE = PROJECT_ROOT / "rules.yara"
 CACHE_FILE = PROJECT_ROOT / "scan_cache.txt"
@@ -49,8 +54,7 @@ C_RESET = colorama.Style.RESET_ALL
 
 if not API_KEY:
     logging.basicConfig(level=logging.INFO, format='%(message)s')
-    logging.critical(f"{C_RED}FATAL ERROR: VIRUSTOTAL_API_KEY not set in environment or .env file.")
-    sys.exit(1)
+    logging.warning(f"{C_YELLOW}WARNING: VIRUSTOTAL_API_KEY not set. Online features will be disabled.{C_RESET}")
 
 # =======================================================
 # 2. HELPER FUNCTIONS
@@ -244,7 +248,37 @@ def scan_file_yara(filepath, yara_rules):
         logging.debug(f"YARA error scanning file (likely permissions): {filepath}")
         return False, None
     return False, None
+
+def scan_file_daemon(filepath):
+    """
+    Connects to the local HashShield Daemon (Brain) to check for viruses.
+    Returns: True if Infected, False if Clean/Error.
+    """
+    try:
+        # Connect to localhost on the configured port
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0) # Don't wait forever if daemon is down
+            s.connect(('127.0.0.1', DAEMON_PORT))
+            
+            # Send the file path
+            s.sendall(filepath.encode())
+            
+            # Receive response (Clean or Infected)
+            response = s.recv(1024).decode()
+            
+            if "INFECTED" in response:
+                return True
+    except ConnectionRefusedError:
+        # Warn once per session if daemon is missing
+        if not getattr(scan_file_daemon, "has_warned", False):
+            logging.warning(f"{C_YELLOW}[!] Warning: Shield Engine Daemon is OFFLINE. Falling back to slower YARA scan.{C_RESET}")
+            scan_file_daemon.has_warned = True
+        pass
+    except Exception as e:
+        logging.debug(f"Daemon check failed: {e}")
     
+    return False
+
 async def upload_file_to_virustotal(filepath, session):
     """Uploads a file to VirusTotal and returns the analysis ID."""
     logging.info(f"File hash not found. Uploading for analysis: {os.path.basename(filepath)}")
@@ -291,7 +325,7 @@ async def get_analysis_result(analysis_id, session):
     for attempt in range(max_retries):
         try:
             async with session.get(url, headers=headers, timeout=20) as response:
-                if response.status == 404 and attempt < 3: # Allow a few 404s at the start
+                if response.status == 404 and attempt < 3: 
                     logging.debug("Analysis object not yet available, retrying...")
                     await asyncio.sleep(poll_interval)
                     continue
@@ -330,18 +364,35 @@ def _process_analysis_data(data):
     return is_malicious, report_msg
 
 async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
-    """Scans a file using YARA rules first, then VirusTotal API."""
+    """Scans a file using Local Daemon, then YARA rules, then VirusTotal API."""
+    
+    ### STEP 1 - CHECK LOCAL DAEMON (FASTEST - BLACKLIST) ###
+    is_infected_daemon = await asyncio.to_thread(scan_file_daemon, filepath)
+    if is_infected_daemon:
+        # If it IS in the blacklist, stop immediately.
+        return filepath, True, "DANGER! Detected by Shield Engine (Local DB)"
+    
+    # If NOT in blacklist, we keep going because it might be a new/unknown virus.
+
+    ### STEP 2 - CHECK YARA (FAST) ###
     is_malicious_yara, rule_name = scan_file_yara(filepath, yara_rules)
     if is_malicious_yara:
         return filepath, True, f"DANGER! Locally detected by YARA rule: {rule_name}"
+        
+    ### STEP 3 - CHECK VIRUSTOTAL (SLOW/CLOUD - WHITELIST + BLACKLIST) ###
+    if not API_KEY:
+        return filepath, False, "Clean (Daemon/YARA passed, VT disabled)"
+
     file_hash = await calculate_file_hash_async(filepath)
     if not file_hash:
         return filepath, False, "Error: Could not calculate file hash."
+    
     logging.debug(f"File hash for {os.path.basename(filepath)}: {file_hash[:10]}...")
     if file_hash in cache:
         status = cache[file_hash]
         is_malware = status == 'malicious'
         return filepath, is_malware, f"Result from cache: {status}"
+        
     logging.debug(f"Querying VirusTotal API for hash: {file_hash[:10]}...")
     headers = {"x-apikey": API_KEY, "Accept": "application/json"}
     url = f"{API_URL}{file_hash}"
@@ -395,8 +446,22 @@ async def main_async_scanner(filepaths, args):
     if yara_rules:
         rule_count = sum(1 for _ in yara_rules)
         logging.info(f"Loaded {rule_count} YARA rules for this session.")
+        
+    # --- THREADING CONFIG ---
+    # Use user-supplied thread limit or default to 4
+    limit = args.threads
+    logging.info(f"Concurrency limit set to: {limit} threads.")
+    sem = asyncio.Semaphore(limit)
+
+    async def semaphore_wrapper(filepath, cache, session, yara_rules, args):
+        async with sem:
+            # If using low threads, be polite to the API. If high threads, blast away.
+            if limit <= 5:
+                await asyncio.sleep(0.5) 
+            return await scan_file_hybrid_async(filepath, cache, session, yara_rules, args)
+
     async with aiohttp.ClientSession() as session:
-        tasks = [scan_file_hybrid_async(filepath, scan_cache, session, yara_rules, args) for filepath in filepaths]
+        tasks = [semaphore_wrapper(filepath, scan_cache, session, yara_rules, args) for filepath in filepaths]
         logging.info(f"Starting hybrid scan of {len(filepaths)} files...")
         for coro in tqdm(asyncio.as_completed(tasks), total=len(tasks), desc="Scanning Files"):
             result = await coro
@@ -408,28 +473,12 @@ def main():
     
     description_text = """An interactive, hybrid malware scanner using local/remote YARA rules and the VirusTotal API.
 
-To customize exclusions, create a `.shieldignore` file in the directory you are scanning.
-
 Features:
-  - Interactive prompts for handling threats (Quarantine, Delete, Ignore).
-  - Dynamic YARA scanning via URL (`--yara-url`).
-  - On-demand file uploads for unknown hashes (`--upload`).
-  - Custom Exclusions via a `.shieldignore` file (supports wildcards).
-  - Local YARA rule scanning for offline detection.
-  - Online hash checking with VirusTotal API for in-depth analysis.
-  - Smart Caching of scan results to avoid redundant API calls.
+  - Interactive prompts for handling threats.
+  - Hybrid Local/Cloud scanning.
+  - 'Daemon Mode' for high-performance instant scanning.
 """
-
-    epilog_text = f"""Examples:
-  # Scan the current directory and be prompted for action on threats.
-  hashshield .
-
-  # Scan a directory and automatically upload any unknown files for analysis.
-  hashshield "C:{os.sep}Users{os.sep}Your Name{os.sep}Downloads" --upload
-
-  # Perform a fresh scan using a remote YARA rule set with verbose logging.
-  hashshield . --fresh --yara-url [https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar](https://raw.githubusercontent.com/Yara-Rules/rules/master/malware/MALW_Eicar.yar) -v
-"""
+    epilog_text = "Examples:\n  hashshield .             # Scan current folder\n  hashshield --daemon      # Start the background engine"
     
     parser = argparse.ArgumentParser(
         description=description_text,
@@ -437,31 +486,40 @@ Features:
         formatter_class=argparse.RawTextHelpFormatter
     )
     
-    parser.add_argument("scan_path", metavar="PATH", type=str, help="The file or directory path to scan.")
+    parser.add_argument("scan_path", metavar="PATH", type=str, nargs='?', help="The file or directory path to scan.")
+    parser.add_argument("--daemon", action="store_true", help="Launch the HashShield background engine server.")
     parser.add_argument("-f", "--fresh", action="store_true", help="Perform a fresh scan by deleting the existing cache file.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Enable verbose (DEBUG) logging output.")
-    parser.add_argument(
-        "-E", "--exclude-ext",
-        nargs="+",
-        metavar="EXT",
-        type=str,
-        default=[],
-        help="Exclude files with specific extensions (e.g., .log .tmp)."
-    )
-    parser.add_argument(
-        "-u", "--yara-url",
-        metavar="URL",
-        type=str,
-        default=None,
-        help="Use YARA rules from a URL instead of the local rules.yara file."
-    )
-    parser.add_argument(
-        "--upload",
-        action="store_true",
-        help="Upload a file for analysis if its hash is not found. The tool will wait for the result."
-    )
+    parser.add_argument("-E", "--exclude-ext", nargs="+", metavar="EXT", type=str, default=[], help="Exclude extensions.")
+    parser.add_argument("-u", "--yara-url", metavar="URL", type=str, default=None, help="Use remote YARA rules.")
+    
+    # NEW ARGUMENT: THREADS
+    parser.add_argument("-t", "--threads", type=int, default=4, help="Number of concurrent API requests (Default: 4). Increase if you have a Premium API Key.")
+    
+    parser.add_argument("--upload", action="store_true", help="Upload unknown files to VirusTotal.")
+    
     args = parser.parse_args()
     
+    if args.daemon:
+        daemon_script = PROJECT_ROOT / "hashshield_daemon.py"
+        if not daemon_script.exists():
+            print(f"{C_RED}[ERROR] Could not find daemon script at: {daemon_script}{C_RESET}")
+            sys.exit(1)
+            
+        print(f"{C_GREEN}[*] Launching HashShield Daemon...{C_RESET}")
+        print(f"[*] Script: {daemon_script}")
+        print("[*] Press Ctrl+C to stop the server.\n")
+        try:
+            subprocess.run([sys.executable, str(daemon_script)])
+        except KeyboardInterrupt:
+            print("\n[*] Daemon stopped by user.")
+        sys.exit(0)
+
+    if not args.scan_path:
+        parser.print_help()
+        print(f"\n{C_RED}[!] Error: You must provide a PATH to scan, or use --daemon.{C_RESET}")
+        sys.exit(1)
+
     log_level = logging.DEBUG if args.verbose else logging.INFO
     log_format = "[%(levelname)s] %(message)s" if args.verbose else "[*] %(message)s"
     logging.basicConfig(level=log_level, format=log_format)
