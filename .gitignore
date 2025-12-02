@@ -57,3 +57,6 @@ virus.txt
 hunt_kali_threats.py
 inspect_db.py
 temp_scans/
+*.zip
+*.tar.gz
+*.tar
