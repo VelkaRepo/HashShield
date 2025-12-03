@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HashShield Security Report</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <style>
+        body { background-color: #f8f9fa; }
+        .header-section { background: #212529; color: #ffc107; padding: 2rem 0; margin-bottom: 2rem; }
+        .card { border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+        .status-infected { color: #dc3545; font-weight: bold; }
+        .status-clean { color: #198754; }
+        .engine-badge { font-size: 0.8em; }
+    </style>
+</head>
+<body>
+
+    <div class="header-section text-center">
+        <h1>🛡️ HashShield v2.0</h1>
+        <p class="lead">Security Audit Report</p>
+        <p class="mb-0 text-white-50">Generated on: {{ scan_time }} | User: {{ user }} | System: {{ system }}</p>
+    </div>
+
+    <div class="container">
+        
+        <div class="row mb-4">
+            <div class="col-md-4">
+                <div class="card text-center p-3">
+                    <h3>{{ summary.total }}</h3>
+                    <p class="text-muted">Files Scanned</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center p-3 border-danger">
+                    <h3 class="text-danger">{{ summary.infected }}</h3>
+                    <p class="text-muted">Threats Detected</p>
+                </div>
+            </div>
+            <div class="col-md-4">
+                <div class="card text-center p-3 border-success">
+                    <h3 class="text-success">{{ summary.clean }}</h3>
+                    <p class="text-muted">Clean Files</p>
+                </div>
+            </div>
+        </div>
+
+        <div class="row mb-4">
+            <div class="col-md-8 offset-md-2 text-center">
+                <div class="card p-3">
+                    <h5>Threat Distribution</h5>
+                    {% if chart_data %}
+                    <img src="data:image/png;base64,{{ chart_data }}" class="img-fluid" alt="Scan Chart">
+                    {% else %}
+                    <p>No data to display.</p>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+
+        <div class="card p-4">
+            <h4 class="mb-3">Detailed Findings</h4>
+            <div class="table-responsive">
+                <table class="table table-hover">
+                    <thead class="table-dark">
+                        <tr>
+                            <th>Status</th>
+                            <th>File Path</th>
+                            <th>Detection Engine</th>
+                            <th>Threat Name</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for item in results %}
+                        <tr>
+                            <td class="{{ 'status-infected' if item.is_infected else 'status-clean' }}">
+                                {{ item.status }}
+                            </td>
+                            <td style="word-break: break-all;">{{ item.file }}</td>
+                            <td>
+                                <span class="badge {{ item.badge_class }} engine-badge">{{ item.engine }}</span>
+                            </td>
+                            <td>{{ item.threat }}</td>
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+
+        <div class="text-center mt-5 mb-5 text-muted">
+            <small>HashShield Security Engine | Final Year Project</small>
+        </div>
+
+    </div>
+</body>
+</html>

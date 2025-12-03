@@ -17,11 +17,21 @@ import json
 import csv
 import platform
 import getpass
+import base64
+import io
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
 from tqdm.asyncio import tqdm
 import colorama
+
+# --- OPTIONAL IMPORTS FOR HTML REPORTING ---
+try:
+    from jinja2 import Environment, FileSystemLoader
+    import matplotlib.pyplot as plt
+    HAS_REPORTING = True
+except ImportError:
+    HAS_REPORTING = False
 
 # --- YARA INTEGRATION ---
 try:
@@ -51,6 +61,7 @@ CACHE_FILE = PROJECT_ROOT / "scan_cache.txt"
 QUARANTINE_DIR = PROJECT_ROOT / "quarantine"
 QUARANTINE_LOG = QUARANTINE_DIR / "quarantine_log.txt"
 TEMP_SCAN_DIR = PROJECT_ROOT / "temp_scans"
+TEMPLATE_DIR = PROJECT_ROOT / "src" / "templates"
 
 EXCLUDED_DIRS = {'.git', '.vscode', '__pycache__', 'venv', 'env', '.venv'}
 EXCLUDED_FILES = {'rules.yara', 'scan_cache.txt'}
@@ -58,7 +69,7 @@ EXCLUDED_FILES = {'rules.yara', 'scan_cache.txt'}
 # --- THEME CONFIGURATION (ORANGE & BLACK) ---
 C_RED = colorama.Fore.RED
 C_GREEN = colorama.Fore.GREEN
-C_YELLOW = colorama.Fore.YELLOW  # Acts as Orange
+C_YELLOW = colorama.Fore.YELLOW
 C_GREY = colorama.Fore.LIGHTBLACK_EX
 C_RESET = colorama.Style.RESET_ALL
 C_BRIGHT = colorama.Style.BRIGHT
@@ -139,7 +150,7 @@ async def fetch_yara_rules_from_url(url):
         return None
 
 def load_ignore_patterns(scan_path):
-    """Looks for a .shieldignore file in the scan path and loads the patterns."""
+    """Looks for a .shieldignore file in the scan path."""
     ignore_file = Path(scan_path) / ".shieldignore"
     patterns = []
     if ignore_file.is_file():
@@ -234,7 +245,13 @@ def get_all_files_recursively(directory_path, excluded_extensions, scan_archives
         if is_hard_excluded: continue
             
         if scan_archives and item.suffix.lower() in ['.zip', '.tar', '.gz', '.tgz']:
-            unique_extract_dir = TEMP_SCAN_DIR / f"{item.name}_extracted"
+            # --- INTELLIGENT EXTRACTION PATH (FIXED) ---
+            # Extract nested archives inside their parent's folder to preserve hierarchy
+            if str(TEMP_SCAN_DIR) in str(item.parent):
+                unique_extract_dir = item.parent / f"{item.name}_extracted"
+            else:
+                unique_extract_dir = TEMP_SCAN_DIR / f"{item.name}_extracted"
+
             if not unique_extract_dir.exists():
                 unique_extract_dir.mkdir(parents=True, exist_ok=True)
                 if extract_archive(item, unique_extract_dir):
@@ -314,133 +331,7 @@ def ensure_daemon_running():
     return False
 
 # =======================================================
-# 3. REPORT GENERATOR
-# =======================================================
-def generate_report(results, output_path, report_format):
-    """Generates a PROFESSIONAL scan report in TXT, CSV, or JSON format."""
-    try:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        
-        total = len(results)
-        infected = sum(1 for _, is_mal, _ in results if is_mal)
-        clean = total - infected
-        
-        sys_info = {
-            "OS": f"{platform.system()} {platform.release()}",
-            "User": getpass.getuser(),
-            "Node": platform.node(),
-            "Scan_Time": timestamp
-        }
-
-        if report_format == 'json':
-            report_data = {
-                "metadata": {
-                    "tool": "HashShield v2.0",
-                    **sys_info
-                },
-                "summary": {"total_files": total, "infected": infected, "clean": clean},
-                "results": []
-            }
-            for fp, is_mal, msg in results:
-                report_data["results"].append({
-                    "file": format_display_path(fp),
-                    "status": "INFECTED" if is_mal else "CLEAN",
-                    "reason": msg
-                })
-            with open(output_path, 'w', encoding='utf-8') as f:
-                json.dump(report_data, f, indent=4)
-
-        elif report_format == 'csv':
-            with open(output_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                # Standard Metadata comments (Safe for most parsers)
-                writer.writerow(["# HashShield Scan Report"])
-                writer.writerow(["# Date: " + timestamp])
-                writer.writerow(["# User: " + sys_info['User']])
-                
-                # Richer Columns
-                writer.writerow(["Timestamp", "File", "Status", "Engine", "Threat_Name", "Raw_Message"])
-                
-                for fp, is_mal, msg in results:
-                    status = "INFECTED" if is_mal else "CLEAN"
-                    
-                    # Parse the Engine & Threat Name cleanly
-                    engine = "Unknown"
-                    threat_name = "N/A"
-                    
-                    if "Shield Engine" in msg: 
-                        engine = "Local DB"
-                        # Extract "Win.Trojan.Agent" from "DANGER! ... : Win.Trojan.Agent"
-                        if ":" in msg: threat_name = msg.split(":", 1)[1].strip()
-                    elif "YARA" in msg: 
-                        engine = "YARA"
-                        if ":" in msg: threat_name = msg.split(":", 1)[1].strip()
-                    elif "VirusTotal" in msg: 
-                        engine = "VirusTotal"
-                        threat_name = "Cloud Detection"
-                        
-                    writer.writerow([timestamp, format_display_path(fp), status, engine, threat_name, msg])
-
-        else: # Default TXT (Audit Style)
-            with open(output_path, 'w', encoding='utf-8') as f:
-                f.write("="*80 + "\n")
-                f.write("  _   _           _     _____ _     _      _     _ \n")
-                f.write(" | | | | __ _ ___| |__ / ____| |__ (_) ___| | __| |\n")
-                f.write(" | |_| |/ _` / __| '_ \\\\___ \\| '_ \\| |/ _ \\ |/ _` |\n")
-                f.write(" |  _  | (_| \\__ \\ | | |___) | | | | |  __/ | (_| |\n")
-                f.write(" |_| |_|\\__,_|___/_| |_|_____/|_| |_|_|\\___|_|\\__,_|\n")
-                f.write("\n")
-                f.write(f"  OFFICIAL SECURITY AUDIT REPORT | v2.0\n")
-                f.write("="*80 + "\n\n")
-                
-                f.write("[+] SCAN META-INFORMATION\n")
-                f.write(f"    Date       : {sys_info['Scan_Time']}\n")
-                f.write(f"    System     : {sys_info['OS']}\n")
-                f.write(f"    Operator   : {sys_info['User']}@{sys_info['Node']}\n")
-                f.write("-" * 80 + "\n\n")
-                
-                f.write("[+] EXECUTIVE SUMMARY\n")
-                f.write("    +---------------------------------------------+\n")
-                f.write(f"    | Total Files Scanned : {str(total).ljust(21)} |\n")
-                f.write(f"    | Threats Detected    : {str(infected).ljust(21)} |\n")
-                f.write(f"    | Clean Files         : {str(clean).ljust(21)} |\n")
-                f.write("    +---------------------------------------------+\n\n")
-                
-                if infected > 0:
-                    f.write("[!] DETECTED THREATS DETAILED LOG\n")
-                    f.write("="*80 + "\n")
-                    f.write(f"{'FILE':<50} | {'ENGINE':<15} | {'THREAT NAME'}\n")
-                    f.write("-" * 80 + "\n")
-                    
-                    for fp, is_mal, msg in results:
-                        if is_mal:
-                            clean_path = format_display_path(fp)
-                            if len(clean_path) > 47: clean_path = "..." + clean_path[-44:]
-                            
-                            engine = "UNKNOWN"
-                            threat = "Generic"
-                            if "Shield Engine" in msg: 
-                                engine = "LOCAL DB"
-                                threat = msg.split(": ")[-1]
-                            elif "YARA" in msg: 
-                                engine = "YARA"
-                                threat = msg.split(": ")[-1]
-                            elif "VirusTotal" in msg: 
-                                engine = "CLOUD API"
-                                threat = "Multi-Vendor"
-                                
-                            f.write(f"{clean_path:<50} | {engine:<15} | {threat}\n")
-                    f.write("-" * 80 + "\n\n")
-                
-                f.write("[*] End of Report.\n")
-        
-        print(f"{C_GREEN}[+] Report saved successfully to: {output_path}{C_RESET}")
-
-    except Exception as e:
-        print(f"{C_RED}[!] Failed to generate report: {e}{C_RESET}")
-
-# =======================================================
-# 4. CORE SCANNING LOGIC
+# 3. CORE SCANNING LOGIC
 # =======================================================
 async def calculate_file_hash_async(filepath):
     def sync_hash():
@@ -466,7 +357,6 @@ def scan_file_yara(filepath, yara_rules):
 
 def scan_file_daemon(filepath):
     try:
-        # FIX: Convert to Absolute Path so Daemon can find it from anywhere
         abs_path = os.path.abspath(filepath)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1.0)
@@ -564,6 +454,127 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
     except Exception as e: return filepath, False, f"Error: {e}"
 
 # =======================================================
+# 4. REPORT GENERATOR (PRO VERSION)
+# =======================================================
+def generate_chart_base64(total, infected, clean):
+    """Generates a Pie Chart in memory and returns Base64 string."""
+    if not HAS_REPORTING: return None
+    try:
+        plt.figure(figsize=(6, 4))
+        labels = ['Infected', 'Clean']
+        sizes = [infected, clean]
+        colors = ['#dc3545', '#198754'] 
+        plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
+        plt.axis('equal') 
+        plt.title('Scan Results Distribution')
+        
+        img_buf = io.BytesIO()
+        plt.savefig(img_buf, format='png')
+        img_buf.seek(0)
+        return base64.b64encode(img_buf.read()).decode('utf-8')
+    except Exception:
+        return None
+
+def generate_report(results, output_path, report_format):
+    """Generates a scan report (TXT, CSV, JSON, HTML)."""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        total = len(results)
+        infected = sum(1 for _, is_mal, _ in results if is_mal)
+        clean = total - infected
+        
+        sys_info = {
+            "OS": f"{platform.system()} {platform.release()}",
+            "User": getpass.getuser(),
+            "Node": platform.node(),
+            "Scan_Time": timestamp
+        }
+
+        if report_format == 'html':
+            if not HAS_REPORTING:
+                print(f"{C_RED}[!] Error: 'jinja2' and 'matplotlib' are required for HTML reports.{C_RESET}")
+                return
+
+            chart_b64 = generate_chart_base64(total, infected, clean)
+            processed_results = []
+            for fp, is_mal, msg in results:
+                badge = "bg-secondary"; engine_name = "Unknown"; threat_name = "None"
+                if is_mal:
+                    if "Shield Engine" in msg: 
+                        badge = "bg-danger"; engine_name = "Local DB"
+                        if "Detected: " in msg: threat_name = msg.split("Detected: ")[-1]
+                    elif "YARA" in msg: 
+                        badge = "bg-warning text-dark"; engine_name = "YARA"
+                        if ": " in msg: threat_name = msg.split(": ")[-1]
+                    elif "VirusTotal" in msg: 
+                        badge = "bg-info text-dark"; engine_name = "Cloud API"; threat_name = "Multi-Vendor Detection"
+                    elif "CONTAINER THREAT" in msg:
+                        badge = "bg-dark border border-danger"; engine_name = "Structure"; threat_name = "Contains Malware"
+                else:
+                    badge = "bg-success"; engine_name = "Safe"; threat_name = "-"
+
+                processed_results.append({
+                    "file": format_display_path(fp), "is_infected": is_mal, "status": "INFECTED" if is_mal else "CLEAN",
+                    "reason": msg, "threat": threat_name, "engine": engine_name, "badge_class": badge
+                })
+
+            env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+            template = env.get_template("report.html")
+            html_out = template.render(scan_time=timestamp, user=sys_info['User'], system=sys_info['OS'],
+                summary={"total": total, "infected": infected, "clean": clean}, results=processed_results, chart_data=chart_b64)
+            with open(output_path, 'w', encoding='utf-8') as f: f.write(html_out)
+
+        elif report_format == 'json':
+            report_data = { "metadata": { "tool": "HashShield v2.0", **sys_info },
+                "summary": {"total_files": total, "infected": infected, "clean": clean}, "results": [] }
+            for fp, is_mal, msg in results:
+                report_data["results"].append({ "file": format_display_path(fp), "status": "INFECTED" if is_mal else "CLEAN", "reason": msg })
+            with open(output_path, 'w', encoding='utf-8') as f: json.dump(report_data, f, indent=4)
+
+        elif report_format == 'csv':
+            with open(output_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                writer.writerow(["# HashShield Scan Report", f"Date: {timestamp}", f"User: {sys_info['User']}"])
+                writer.writerow(["Timestamp", "File", "Status", "Reason", "Detection Engine", "Threat Name"])
+                for fp, is_mal, msg in results:
+                    status = "INFECTED" if is_mal else "CLEAN"
+                    engine = "Cloud" if "VirusTotal" in msg else "Local" if "Shield Engine" in msg else "YARA" if "YARA" in msg else "Unknown"
+                    threat = msg.split(": ")[-1] if ":" in msg else "Generic"
+                    writer.writerow([timestamp, format_display_path(fp), status, msg, engine, threat])
+
+        else: # Default TXT
+             with open(output_path, 'w', encoding='utf-8') as f:
+                f.write("="*80 + "\n"); f.write(f"  OFFICIAL SECURITY AUDIT REPORT | v2.0\n"); f.write("="*80 + "\n\n")
+                f.write("[+] SCAN META-INFORMATION\n")
+                f.write(f"    Date       : {sys_info['Scan_Time']}\n"); f.write(f"    System     : {sys_info['OS']}\n"); f.write(f"    Operator   : {sys_info['User']}@{sys_info['Node']}\n"); f.write("-" * 80 + "\n\n")
+                f.write("[+] EXECUTIVE SUMMARY\n")
+                f.write("    +---------------------------------------------+\n")
+                f.write(f"    | Total Files Scanned : {str(total).ljust(21)} |\n")
+                f.write(f"    | Threats Detected    : {str(infected).ljust(21)} |\n")
+                f.write(f"    | Clean Files         : {str(clean).ljust(21)} |\n")
+                f.write("    +---------------------------------------------+\n\n")
+                if infected > 0:
+                    f.write("[!] DETECTED THREATS DETAILED LOG\n"); f.write("="*80 + "\n")
+                    f.write(f"{'FILE':<50} | {'ENGINE':<15} | {'THREAT NAME'}\n"); f.write("-" * 80 + "\n")
+                    for fp, is_mal, msg in results:
+                        if is_mal:
+                            clean_path = format_display_path(fp)
+                            if len(clean_path) > 47: clean_path = "..." + clean_path[-44:]
+                            engine = "UNKNOWN"; threat = "Generic"
+                            if "Shield Engine" in msg: engine = "LOCAL DB"; threat = msg.split(": ")[-1]
+                            elif "YARA" in msg: engine = "YARA"; threat = msg.split(": ")[-1]
+                            elif "VirusTotal" in msg: engine = "CLOUD API"; threat = "Multi-Vendor"
+                            elif "CONTAINER THREAT" in msg: engine = "ARCHIVE"; threat = "Contains Malware"
+                            f.write(f"{clean_path:<50} | {engine:<15} | {threat}\n")
+                    f.write("-" * 80 + "\n\n")
+                f.write("[*] End of Report.\n")
+        
+        print(f"{C_GREEN}[+] Report saved successfully to: {output_path}{C_RESET}")
+
+    except Exception as e:
+        print(f"{C_RED}[!] Failed to generate report: {e}{C_RESET}")
+
+# =======================================================
 # 5. MAIN EXECUTION
 # =======================================================
 async def main_async_scanner(filepaths, args):
@@ -591,15 +602,13 @@ async def main_async_scanner(filepaths, args):
 
 def main():
     print_banner()
-    parser = argparse.ArgumentParser(description="HashShield: Hybrid Malware Scanner", epilog="Examples:\n  hashshield . --daemon\n  hashshield . -o report.txt", formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description="HashShield: Hybrid Malware Scanner", epilog="Examples:\n  hashshield . --daemon\n  hashshield . --scan-archives", formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("scan_path", metavar="PATH", type=str, nargs='?', help="Path to scan.")
     parser.add_argument("--daemon", action="store_true", help="Launch engine daemon.")
     parser.add_argument("--scan-archives", action="store_true", help="Scan inside archives.")
     
-    # Reporting
     parser.add_argument("-o", "--output", metavar="FILE", type=str, help="Save report to file.")
-    parser.add_argument("--format", choices=['txt', 'csv', 'json'], default='txt', help="Report format.")
-
+    parser.add_argument("--format", choices=['txt', 'csv', 'json', 'html'], default='txt', help="Report format.")
     parser.add_argument("-f", "--fresh", action="store_true", help="Ignore cache.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
     parser.add_argument("-E", "--exclude-ext", nargs="+", metavar="EXT", type=str, default=[], help="Exclude extensions.")
@@ -657,46 +666,79 @@ def main():
         print("\nRunning scan...\n")
         results = asyncio.run(main_async_scanner(filepaths_to_scan, args))
 
-        print("\n\n--- SCAN RESULTS ---")
-        infected, uploaded = [], []
-        for fp, is_mal, msg in results:
-            if is_mal: infected.append((fp, msg))
-            elif "uploaded" in msg.lower() or "error" in msg.lower(): uploaded.append((fp, msg))
+        # --- POST-PROCESSING RESULTS ---
+        infected_results = []
+        uploaded_results = []
+        clean_paths = set()
+        clean_results_list = []
 
-        if infected:
-            print(f"\n{C_YELLOW}--- DETECTED THREATS ({len(infected)}) ---{C_RESET}")
+        for filepath, is_malicious, message in results:
+            if is_malicious:
+                infected_results.append((filepath, message))
+            elif "uploaded" in message.lower() or "error" in message.lower() or "limit" in message.lower():
+                uploaded_results.append((filepath, message))
+            else:
+                clean_paths.add(filepath)
+                clean_results_list.append((filepath, message))
+
+        # Propagate Infection
+        bad_archives = set()
+        for fp, _ in infected_results:
+            if "temp_scans" in fp:
+                parts = Path(fp).parts
+                if "temp_scans" in parts:
+                    idx = parts.index("temp_scans")
+                    for part in parts[idx:]:
+                        if part.endswith("_extracted"):
+                            archive_name = part.replace("_extracted", "")
+                            bad_archives.add(archive_name)
+
+        final_clean_results = []
+        for fp, msg in clean_results_list:
+            filename = Path(fp).name
+            if filename in bad_archives:
+                infected_results.append((fp, "CONTAINER THREAT: Archive contains malicious files."))
+            else:
+                final_clean_results.append(fp)
+
+        # --- REPORTING ---
+        print("\n\n--- SCAN RESULTS ---")
+        if infected_results:
+            print(f"\n{C_YELLOW}--- DETECTED THREATS ({len(infected_results)}) ---{C_RESET}")
             action_all = None
-            for i, (fp, msg) in enumerate(sorted(infected)):
+            for i, (fp, msg) in enumerate(sorted(infected_results)):
                 print("-" * 40)
                 print(f"  FILE    : {format_display_path(fp)}")
                 print(f"  STATUS  : {C_RED}INFECTED{C_RESET}")
                 print(f"  REASON  : {msg}")
-                if "temp_scans" in str(fp):
-                    print(f"  {C_YELLOW}[!] File inside archive.{C_RESET}")
+                if "temp_scans" in str(fp) or "CONTAINER THREAT" in msg:
+                    print(f"  {C_YELLOW}[!] Note: Archive handling required.{C_RESET}")
                 else:
-                    if action_all: 
-                        action = action_all
+                    if action_all: action = action_all
                     elif not sys.stdin.isatty():
                         print(f"  {C_YELLOW}[!] Non-interactive mode detected. Defaulting to 'Ignore'.{C_RESET}")
                         action = 'i'
-                    else: 
-                        action = input(f"\n  Action? ({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | ({C_YELLOW}A{C_RESET})ll Q, A({C_RED}l{C_RESET})l D, All ({C_GREEN}S{C_RESET})kip? ").lower()
-                    
+                    else: action = input(f"\n  Action? ({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | ({C_YELLOW}A{C_RESET})ll Q, A({C_RED}l{C_RESET})l D, All ({C_GREEN}S{C_RESET})kip? ").lower()
                     if action == 'q': quarantine_file(fp, msg)
                     elif action == 'd': delete_file(fp, msg)
                     elif action == 'a': action_all = 'q'; quarantine_file(fp, msg)
                     elif action == 'l': action_all = 'd'; delete_file(fp, msg)
                     elif action == 's': action_all = 'i'
-                    
-        if uploaded:
+        
+        if uploaded_results:
              print(f"\n{C_YELLOW}--- OTHER STATUSES ---{C_RESET}")
-             for fp, msg in uploaded: print(f"  - {format_display_path(fp)} : {msg}")
+             for fp, msg in uploaded_results: print(f"  - {format_display_path(fp)} : {msg}")
 
         print("-" * 40)
-        print(f"Scan complete. Found {len(infected)} malicious files.")
+        print(f"Scan complete. Found {len(infected_results)} malicious files.")
+
+        final_report_list = []
+        for fp, msg in infected_results: final_report_list.append((fp, True, msg))
+        for fp, msg in uploaded_results: final_report_list.append((fp, False, msg))
+        for fp in final_clean_results: final_report_list.append((fp, False, "Clean"))
 
         if args.output:
-            generate_report(results, args.output, args.format)
+            generate_report(final_report_list, args.output, args.format)
 
     finally:
         if TEMP_SCAN_DIR.exists(): shutil.rmtree(TEMP_SCAN_DIR, ignore_errors=True)

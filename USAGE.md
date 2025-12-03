@@ -82,6 +82,7 @@ Generate professional audit logs for your scans.
 1. **TXT:** Human-readable audit log with ASCII branding and summary tables.
 2. **CSV:** Spreadsheet-compatible format (Timestamp, File, Status, Engine, Threat Name).
 3. **JSON:** Structured data for SIEM integration.
+4. **HTML:** Interactive dashboard with charts and tables.
 
 ### Examples
 
@@ -94,6 +95,9 @@ hashshield . -o scan_results.csv --format csv
 
 # Generate a JSON Report for Development
 hashshield . -o data.json --format json
+
+# Generate HTML Dashboard Report
+hashshield . -o scan_report.html --format html
 ```
 
 ---
