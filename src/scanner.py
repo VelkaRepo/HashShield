@@ -13,6 +13,10 @@ import subprocess
 import zipfile
 import tarfile
 import time
+import json
+import csv
+import platform
+import getpass
 from datetime import datetime
 from pathlib import Path
 from dotenv import load_dotenv
@@ -67,7 +71,7 @@ if not API_KEY:
 # 2. HELPER FUNCTIONS
 # =======================================================
 def print_banner():
-    """Prints the HashShield ASCII Art Banner in Orange & Black style."""
+    """Prints the HashShield ASCII Art Banner."""
     banner = f"""{C_YELLOW}{C_BRIGHT}
   _   _           _     _____ _     _      _     _ 
  | | | | __ _ ___| |__ / ____| |__ (_) ___| | __| |
@@ -105,7 +109,7 @@ def save_cache(cache):
         logging.warning(f"Could not save cache file: {e}")
 
 def load_yara_rules(filepath=None, source=None):
-    """Loads and compiles YARA rules from a file path OR a string source."""
+    """Loads and compiles YARA rules."""
     try:
         if filepath:
             if not Path(filepath).exists():
@@ -129,9 +133,7 @@ async def fetch_yara_rules_from_url(url):
         async with aiohttp.ClientSession() as session:
             async with session.get(url, timeout=30) as response:
                 response.raise_for_status()
-                rules_content = await response.text()
-                logging.debug("Successfully downloaded YARA rule content.")
-                return rules_content
+                return await response.text()
     except Exception as e:
         logging.critical(f"{C_RED}FATAL ERROR: Failed to download YARA rules from URL: {e}")
         return None
@@ -153,25 +155,19 @@ def load_ignore_patterns(scan_path):
     return patterns
 
 def format_display_path(filepath):
-    """
-    Converts .../temp_scans/bad.zip_extracted/virus.exe -> bad.zip -> virus.exe
-    """
+    """Converts temp extraction paths into readable format."""
     path_str = str(filepath)
     if "temp_scans" in path_str:
         try:
             rel = Path(filepath).relative_to(TEMP_SCAN_DIR)
-            # Clean up the formatting
             clean_path = str(rel).replace("_extracted", " -> ").replace("/ ->", " ->")
-            clean_path = clean_path.replace(os.sep, "/")
-            return clean_path
+            return clean_path.replace(os.sep, "/")
         except:
             return path_str
     return path_str
 
 def extract_archive(filepath, extract_to):
-    """
-    Extracts .zip, .tar, .tar.gz files to a target directory.
-    """
+    """Extracts .zip, .tar, .tar.gz files to a target directory."""
     try:
         if zipfile.is_zipfile(filepath):
             logging.debug(f"Extracting ZIP: {filepath}")
@@ -200,9 +196,7 @@ def extract_archive(filepath, extract_to):
     return False
 
 def get_all_files_recursively(directory_path, excluded_extensions, scan_archives=False):
-    """
-    Collects file paths from a directory recursively.
-    """
+    """Collects file paths from a directory recursively."""
     logging.info(f"Searching for files in {directory_path}...")
     filepaths = []
     skipped_by_ext_count = 0
@@ -216,11 +210,11 @@ def get_all_files_recursively(directory_path, excluded_extensions, scan_archives
     user_ignore_patterns = load_ignore_patterns(directory_path)
     
     for item in p.rglob('*'):
-        if not item.is_file():
-            continue
+        if not item.is_file(): continue
         if item.suffix.lower() in excluded_ext_set:
             skipped_by_ext_count += 1
             continue
+            
         is_user_ignored = False
         try:
             relative_path = item.relative_to(p).as_posix()
@@ -229,32 +223,26 @@ def get_all_files_recursively(directory_path, excluded_extensions, scan_archives
                     is_user_ignored = True
                     break
         except: pass
-        if is_user_ignored:
-            continue
-        if item.name in EXCLUDED_FILES:
-            continue
+        if is_user_ignored: continue
+        if item.name in EXCLUDED_FILES: continue
+        
         is_hard_excluded = False
         for part in item.parts:
             if part in EXCLUDED_DIRS or part.endswith('.egg-info'):
                 is_hard_excluded = True
                 break
-        if is_hard_excluded:
-            continue
+        if is_hard_excluded: continue
             
-        # --- ARCHIVE HANDLING ---
         if scan_archives and item.suffix.lower() in ['.zip', '.tar', '.gz', '.tgz']:
             unique_extract_dir = TEMP_SCAN_DIR / f"{item.name}_extracted"
             if not unique_extract_dir.exists():
                 unique_extract_dir.mkdir(parents=True, exist_ok=True)
                 if extract_archive(item, unique_extract_dir):
                     extracted_files, extracted_skipped = get_all_files_recursively(
-                        str(unique_extract_dir), 
-                        excluded_extensions, 
-                        scan_archives=True
+                        str(unique_extract_dir), excluded_extensions, scan_archives=True
                     )
                     filepaths.extend(extracted_files)
                     skipped_by_ext_count += extracted_skipped
-
         filepaths.append(str(item))
         
     return filepaths, skipped_by_ext_count
@@ -270,13 +258,7 @@ def quarantine_file(filepath, reason):
         destination_path = QUARANTINE_DIR / safe_filename
         shutil.move(filepath, destination_path)
         with open(QUARANTINE_LOG, 'a', encoding='utf-8') as log_file:
-            log_entry = (
-                f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"  Original Path: {filepath}\n"
-                f"  Quarantined To: {destination_path}\n"
-                f"  Reason: {reason}\n"
-                f"---\n"
-            )
+            log_entry = f"Timestamp: {datetime.now()}\n  Original: {filepath}\n  Quarantined: {destination_path}\n  Reason: {reason}\n---\n"
             log_file.write(log_entry)
         logging.debug(f"Successfully quarantined file to: {destination_path}")
         return True
@@ -291,13 +273,7 @@ def delete_file(filepath, reason):
         os.remove(filepath)
         QUARANTINE_DIR.mkdir(exist_ok=True)
         with open(QUARANTINE_LOG, 'a', encoding='utf-8') as log_file:
-            log_entry = (
-                f"Timestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n"
-                f"  Action: DELETED\n"
-                f"  Original Path: {filepath}\n"
-                f"  Reason: {reason}\n"
-                f"---\n"
-            )
+            log_entry = f"Timestamp: {datetime.now()}\n  Action: DELETED\n  Original: {filepath}\n  Reason: {reason}\n---\n"
             log_file.write(log_entry)
         logging.info(f"Successfully deleted file: {filepath}")
         return True
@@ -312,47 +288,161 @@ def is_port_open(host, port):
         return s.connect_ex((host, port)) == 0
 
 def ensure_daemon_running():
-    """
-    Checks if the daemon is alive. If not, starts it automatically.
-    """
+    """Checks if the daemon is alive. If not, starts it automatically."""
     if is_port_open('127.0.0.1', DAEMON_PORT):
         return True
-
     print(f"{C_YELLOW}[*] Daemon is OFFLINE. Auto-starting engine... (This takes ~10s){C_RESET}")
-    
     daemon_script = PROJECT_ROOT / "hashshield_daemon.py"
     if not daemon_script.exists():
         print(f"{C_RED}[ERROR] Daemon script missing at {daemon_script}{C_RESET}")
         return False
-
     try:
         if sys.platform == "win32":
-            subprocess.Popen([sys.executable, str(daemon_script)], 
-                             creationflags=subprocess.CREATE_NEW_CONSOLE)
+            subprocess.Popen([sys.executable, str(daemon_script)], creationflags=subprocess.CREATE_NEW_CONSOLE)
         else:
-            subprocess.Popen([sys.executable, str(daemon_script)], 
-                             stdout=subprocess.DEVNULL, 
-                             stderr=subprocess.DEVNULL,
-                             start_new_session=True)
+            subprocess.Popen([sys.executable, str(daemon_script)], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, start_new_session=True)
     except Exception as e:
         logging.error(f"Failed to start daemon: {e}")
         return False
-
     for _ in range(30):
         if is_port_open('127.0.0.1', DAEMON_PORT):
             print(f"{C_GREEN}[+] Daemon is online! Connected.{C_RESET}")
             return True
         time.sleep(1)
         print(".", end="", flush=True)
-    
     print(f"\n{C_RED}[!] Daemon start timed out. Proceeding with limited scanning.{C_RESET}")
     return False
 
 # =======================================================
-# 3. CORE SCANNING LOGIC
+# 3. REPORT GENERATOR
+# =======================================================
+def generate_report(results, output_path, report_format):
+    """Generates a PROFESSIONAL scan report in TXT, CSV, or JSON format."""
+    try:
+        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        
+        total = len(results)
+        infected = sum(1 for _, is_mal, _ in results if is_mal)
+        clean = total - infected
+        
+        sys_info = {
+            "OS": f"{platform.system()} {platform.release()}",
+            "User": getpass.getuser(),
+            "Node": platform.node(),
+            "Scan_Time": timestamp
+        }
+
+        if report_format == 'json':
+            report_data = {
+                "metadata": {
+                    "tool": "HashShield v2.0",
+                    **sys_info
+                },
+                "summary": {"total_files": total, "infected": infected, "clean": clean},
+                "results": []
+            }
+            for fp, is_mal, msg in results:
+                report_data["results"].append({
+                    "file": format_display_path(fp),
+                    "status": "INFECTED" if is_mal else "CLEAN",
+                    "reason": msg
+                })
+            with open(output_path, 'w', encoding='utf-8') as f:
+                json.dump(report_data, f, indent=4)
+
+        elif report_format == 'csv':
+            with open(output_path, 'w', newline='', encoding='utf-8') as f:
+                writer = csv.writer(f)
+                # Standard Metadata comments (Safe for most parsers)
+                writer.writerow(["# HashShield Scan Report"])
+                writer.writerow(["# Date: " + timestamp])
+                writer.writerow(["# User: " + sys_info['User']])
+                
+                # Richer Columns
+                writer.writerow(["Timestamp", "File", "Status", "Engine", "Threat_Name", "Raw_Message"])
+                
+                for fp, is_mal, msg in results:
+                    status = "INFECTED" if is_mal else "CLEAN"
+                    
+                    # Parse the Engine & Threat Name cleanly
+                    engine = "Unknown"
+                    threat_name = "N/A"
+                    
+                    if "Shield Engine" in msg: 
+                        engine = "Local DB"
+                        # Extract "Win.Trojan.Agent" from "DANGER! ... : Win.Trojan.Agent"
+                        if ":" in msg: threat_name = msg.split(":", 1)[1].strip()
+                    elif "YARA" in msg: 
+                        engine = "YARA"
+                        if ":" in msg: threat_name = msg.split(":", 1)[1].strip()
+                    elif "VirusTotal" in msg: 
+                        engine = "VirusTotal"
+                        threat_name = "Cloud Detection"
+                        
+                    writer.writerow([timestamp, format_display_path(fp), status, engine, threat_name, msg])
+
+        else: # Default TXT (Audit Style)
+            with open(output_path, 'w', encoding='utf-8') as f:
+                f.write("="*80 + "\n")
+                f.write("  _   _           _     _____ _     _      _     _ \n")
+                f.write(" | | | | __ _ ___| |__ / ____| |__ (_) ___| | __| |\n")
+                f.write(" | |_| |/ _` / __| '_ \\\\___ \\| '_ \\| |/ _ \\ |/ _` |\n")
+                f.write(" |  _  | (_| \\__ \\ | | |___) | | | | |  __/ | (_| |\n")
+                f.write(" |_| |_|\\__,_|___/_| |_|_____/|_| |_|_|\\___|_|\\__,_|\n")
+                f.write("\n")
+                f.write(f"  OFFICIAL SECURITY AUDIT REPORT | v2.0\n")
+                f.write("="*80 + "\n\n")
+                
+                f.write("[+] SCAN META-INFORMATION\n")
+                f.write(f"    Date       : {sys_info['Scan_Time']}\n")
+                f.write(f"    System     : {sys_info['OS']}\n")
+                f.write(f"    Operator   : {sys_info['User']}@{sys_info['Node']}\n")
+                f.write("-" * 80 + "\n\n")
+                
+                f.write("[+] EXECUTIVE SUMMARY\n")
+                f.write("    +---------------------------------------------+\n")
+                f.write(f"    | Total Files Scanned : {str(total).ljust(21)} |\n")
+                f.write(f"    | Threats Detected    : {str(infected).ljust(21)} |\n")
+                f.write(f"    | Clean Files         : {str(clean).ljust(21)} |\n")
+                f.write("    +---------------------------------------------+\n\n")
+                
+                if infected > 0:
+                    f.write("[!] DETECTED THREATS DETAILED LOG\n")
+                    f.write("="*80 + "\n")
+                    f.write(f"{'FILE':<50} | {'ENGINE':<15} | {'THREAT NAME'}\n")
+                    f.write("-" * 80 + "\n")
+                    
+                    for fp, is_mal, msg in results:
+                        if is_mal:
+                            clean_path = format_display_path(fp)
+                            if len(clean_path) > 47: clean_path = "..." + clean_path[-44:]
+                            
+                            engine = "UNKNOWN"
+                            threat = "Generic"
+                            if "Shield Engine" in msg: 
+                                engine = "LOCAL DB"
+                                threat = msg.split(": ")[-1]
+                            elif "YARA" in msg: 
+                                engine = "YARA"
+                                threat = msg.split(": ")[-1]
+                            elif "VirusTotal" in msg: 
+                                engine = "CLOUD API"
+                                threat = "Multi-Vendor"
+                                
+                            f.write(f"{clean_path:<50} | {engine:<15} | {threat}\n")
+                    f.write("-" * 80 + "\n\n")
+                
+                f.write("[*] End of Report.\n")
+        
+        print(f"{C_GREEN}[+] Report saved successfully to: {output_path}{C_RESET}")
+
+    except Exception as e:
+        print(f"{C_RED}[!] Failed to generate report: {e}{C_RESET}")
+
+# =======================================================
+# 4. CORE SCANNING LOGIC
 # =======================================================
 async def calculate_file_hash_async(filepath):
-    """Calculates the SHA256 hash of a file in a separate thread."""
     def sync_hash():
         logging.debug(f"Hashing file: {filepath}")
         sha256 = hashlib.sha256()
@@ -363,120 +453,80 @@ async def calculate_file_hash_async(filepath):
                     if not data: break
                     sha256.update(data)
             return sha256.hexdigest()
-        except OSError:
-            return None
+        except OSError: return None
     return await asyncio.to_thread(sync_hash)
 
 def scan_file_yara(filepath, yara_rules):
-    """Scans a file against a set of compiled YARA rules."""
-    if not yara_rules:
-        return False, None
+    if not yara_rules: return False, None
     try:
-        logging.debug(f"Performing YARA scan on: {filepath}")
         matches = yara_rules.match(filepath=filepath)
-        if matches:
-            return True, matches[0].rule
-    except yara.Error:
-        logging.debug(f"YARA error scanning file (likely permissions): {filepath}")
-        return False, None
+        if matches: return True, matches[0].rule
+    except yara.Error: pass
     return False, None
 
 def scan_file_daemon(filepath):
-    """Connects to the local HashShield Daemon."""
     try:
         # FIX: Convert to Absolute Path so Daemon can find it from anywhere
         abs_path = os.path.abspath(filepath)
-        
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(1.0)
             s.connect(('127.0.0.1', DAEMON_PORT))
-            
-            # Send the ABSOLUTE path
             s.sendall(abs_path.encode())
-            
             response = s.recv(1024).decode()
-            
-            # Parse "INFECTED:VirusName"
             if response.startswith("INFECTED"):
                 parts = response.split(":", 1)
-                threat_name = parts[1] if len(parts) > 1 else "Unknown Threat"
-                return threat_name # Return name string (Truthiness is True)
-                
-    except ConnectionRefusedError:
-        # Daemon is unreachable, just return False (skip local db check)
-        pass
-    except Exception as e:
-        logging.debug(f"Daemon check failed: {e}")
+                return parts[1] if len(parts) > 1 else "Unknown Threat"
+    except ConnectionRefusedError: pass
+    except Exception as e: logging.debug(f"Daemon check failed: {e}")
     return None
 
 async def upload_file_to_virustotal(filepath, session):
-    """Uploads a file to VirusTotal and returns the analysis ID."""
-    logging.info(f"File hash not found. Uploading for analysis: {os.path.basename(filepath)}")
+    logging.info(f"File hash not found. Uploading: {os.path.basename(filepath)}")
     try:
-        file_size_mb = os.path.getsize(filepath) / (1024 * 1024)
-        if file_size_mb > 32:
-            return None, "File too large to upload (>32MB)"
-    except OSError as e:
-        return None, f"Error accessing file: {e}"
+        if os.path.getsize(filepath) > 32 * 1024 * 1024: return None, "File too large (>32MB)"
+    except OSError: return None, "Error accessing file"
     headers = {"x-apikey": API_KEY}
     data = aiohttp.FormData()
     try:
         data.add_field('file', open(filepath, 'rb'), filename=os.path.basename(filepath))
-    except IOError as e:
-        return None, "Error opening file for upload"
+    except IOError: return None, "Error opening file"
     try:
-        upload_url = API_URL.rstrip('/')
-        async with session.post(upload_url, headers=headers, data=data, timeout=300) as response:
+        async with session.post(API_URL.rstrip('/'), headers=headers, data=data, timeout=300) as response:
             response.raise_for_status()
             result = await response.json()
-            analysis_id = result.get('data', {}).get('id')
-            return analysis_id, "File uploaded, awaiting analysis..."
-    except Exception as e:
-        return None, f"Upload failed: {e}"
+            return result.get('data', {}).get('id'), "File uploaded, awaiting analysis..."
+    except Exception as e: return None, f"Upload failed: {e}"
 
 async def get_analysis_result(analysis_id, session):
-    """Polls VirusTotal for a completed analysis report."""
     if not analysis_id: return None
-    logging.info(f"Waiting for analysis results for ID: {analysis_id[:15]}...")
+    logging.info(f"Waiting for analysis: {analysis_id[:15]}...")
     headers = {"x-apikey": API_KEY}
     url = f"{ANALYSIS_URL}{analysis_id}"
-    max_retries = 20
-    poll_interval = 15
-    await asyncio.sleep(5)
-    for attempt in range(max_retries):
+    for attempt in range(20):
         try:
             async with session.get(url, headers=headers, timeout=20) as response:
                 if response.status == 404 and attempt < 3: 
-                    await asyncio.sleep(poll_interval)
+                    await asyncio.sleep(15)
                     continue
                 response.raise_for_status()
                 result = await response.json()
-                status = result.get('data', {}).get('attributes', {}).get('status')
-                if status == 'completed':
+                if result.get('data', {}).get('attributes', {}).get('status') == 'completed':
                     return result
-                else:
-                    await asyncio.sleep(poll_interval)
-        except Exception as e:
-            logging.error(f"Error while polling for results: {e}")
-            return None
+                else: await asyncio.sleep(15)
+        except: return None
     return None
 
 def _process_analysis_data(data):
     if not data: return False, "Analysis timed out or failed."
-    attributes = data.get("data", {}).get("attributes", {})
-    stats = attributes.get("stats") or attributes.get("last_analysis_stats", {})
+    stats = data.get("data", {}).get("attributes", {}).get("stats") or data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
     malicious_count = stats.get("malicious", 0)
-    if malicious_count > 0:
-        return True, f"DANGER! Detected by {malicious_count} vendors on VirusTotal."
+    if malicious_count > 0: return True, f"DANGER! Detected by {malicious_count} vendors on VirusTotal."
     return False, "Scan complete. Clean on VirusTotal."
 
 async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
-    """Scans a file using Local Daemon, then YARA rules, then VirusTotal API."""
-    
     # 1. Daemon (Hash + Heuristics)
     daemon_result = await asyncio.to_thread(scan_file_daemon, filepath)
     if daemon_result:
-        # Report specific virus name
         return filepath, True, f"DANGER! Shield Engine Detected: {daemon_result}"
 
     # 2. YARA (Local Patterns)
@@ -485,63 +535,42 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
         return filepath, True, f"DANGER! Locally detected by YARA rule: {rule_name}"
         
     # 3. VirusTotal (Cloud)
-    if not API_KEY:
-        return filepath, False, "Clean (Daemon/YARA passed, VT disabled)"
+    if not API_KEY: return filepath, False, "Clean (Daemon/YARA passed, VT disabled)"
 
     file_hash = await calculate_file_hash_async(filepath)
-    if not file_hash:
-        return filepath, False, "Error: Could not calculate file hash."
+    if not file_hash: return filepath, False, "Error: Could not calculate file hash."
     
     if file_hash in cache:
-        status = cache[file_hash]
-        return filepath, (status == 'malicious'), f"Result from cache: {status}"
+        return filepath, (cache[file_hash] == 'malicious'), f"Result from cache: {cache[file_hash]}"
         
     headers = {"x-apikey": API_KEY, "Accept": "application/json"}
-    url = f"{API_URL}{file_hash}"
     try:
-        async with session.get(url, headers=headers, timeout=20) as response:
-            if response.status >= 400 and response.status != 404:
-                response.raise_for_status()
-            
+        async with session.get(f"{API_URL}{file_hash}", headers=headers, timeout=20) as response:
+            if response.status >= 400 and response.status != 404: response.raise_for_status()
             is_malicious, report_msg = False, ""
+            
             if response.status == 200:
-                file_report = await response.json()
-                is_malicious, report_msg = _process_analysis_data(file_report)
+                is_malicious, report_msg = _process_analysis_data(await response.json())
             elif response.status == 404:
                 if args.upload:
-                    analysis_id, temp_message = await upload_file_to_virustotal(filepath, session)
-                    if analysis_id:
-                        analysis_report = await get_analysis_result(analysis_id, session)
-                        is_malicious, report_msg = _process_analysis_data(analysis_report)
-                    else:
-                        report_msg = temp_message
-                else:
-                    report_msg = "File hash not in VirusTotal DB. Assumed clean."
+                    aid, msg = await upload_file_to_virustotal(filepath, session)
+                    if aid: is_malicious, report_msg = _process_analysis_data(await get_analysis_result(aid, session))
+                    else: report_msg = msg
+                else: report_msg = "File hash not in VirusTotal DB. Assumed clean."
             
             cache[file_hash] = 'malicious' if is_malicious else 'clean'
             save_cache(cache)
             return filepath, is_malicious, report_msg
-
-    except Exception as e:
-        return filepath, False, f"An unexpected error occurred: {e}"
+    except Exception as e: return filepath, False, f"Error: {e}"
 
 # =======================================================
-# 4. MAIN EXECUTION
+# 5. MAIN EXECUTION
 # =======================================================
 async def main_async_scanner(filepaths, args):
     scan_cache = load_cache()
-    yara_rules = None
-    if args.yara_url:
-        rules_content = await fetch_yara_rules_from_url(args.yara_url)
-        if rules_content:
-            yara_rules = load_yara_rules(source=rules_content)
-    else:
-        yara_rules = load_yara_rules(filepath=YARA_RULES_FILE)
-    
+    yara_rules = load_yara_rules(source=await fetch_yara_rules_from_url(args.yara_url)) if args.yara_url else load_yara_rules(filepath=YARA_RULES_FILE)
     results = []
-    if yara_rules:
-        rule_count = sum(1 for _ in yara_rules)
-        logging.info(f"Loaded {rule_count} YARA rules for this session.")
+    if yara_rules: logging.info(f"Loaded {sum(1 for _ in yara_rules)} YARA rules.")
         
     limit = args.threads
     is_free_tier = (limit <= 4)
@@ -561,32 +590,28 @@ async def main_async_scanner(filepaths, args):
     return results
 
 def main():
-    # 1. SHOW BRANDING (Orange & Black)
     print_banner()
-    
-    description_text = "HashShield: Hybrid Malware Scanner (Hash + Heuristic + Cloud)"
-    epilog_text = "Examples:\n  hashshield . --daemon\n  hashshield . --scan-archives"
-    
-    parser = argparse.ArgumentParser(description=description_text, epilog=epilog_text, formatter_class=argparse.RawTextHelpFormatter)
+    parser = argparse.ArgumentParser(description="HashShield: Hybrid Malware Scanner", epilog="Examples:\n  hashshield . --daemon\n  hashshield . -o report.txt", formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument("scan_path", metavar="PATH", type=str, nargs='?', help="Path to scan.")
-    parser.add_argument("--daemon", action="store_true", help="Launch the engine daemon.")
+    parser.add_argument("--daemon", action="store_true", help="Launch engine daemon.")
+    parser.add_argument("--scan-archives", action="store_true", help="Scan inside archives.")
     
-    # --- FEATURES ---
-    parser.add_argument("--scan-archives", action="store_true", help="Recursively extract and scan archives (.zip, .tar, .tar.gz).")
+    # Reporting
+    parser.add_argument("-o", "--output", metavar="FILE", type=str, help="Save report to file.")
+    parser.add_argument("--format", choices=['txt', 'csv', 'json'], default='txt', help="Report format.")
+
     parser.add_argument("-f", "--fresh", action="store_true", help="Ignore cache.")
     parser.add_argument("-v", "--verbose", action="store_true", help="Verbose output.")
     parser.add_argument("-E", "--exclude-ext", nargs="+", metavar="EXT", type=str, default=[], help="Exclude extensions.")
-    parser.add_argument("-u", "--yara-url", type=str, default=None, help="Remote YARA rules URL.")
+    parser.add_argument("-u", "--yara-url", type=str, default=None, help="Remote YARA URL.")
     parser.add_argument("-t", "--threads", type=int, default=4, help="Threads (Default: 4).")
     parser.add_argument("--upload", action="store_true", help="Upload unknown files.")
-    
     args = parser.parse_args()
     
-    # Daemon Launch Mode
     if args.daemon:
         daemon_script = PROJECT_ROOT / "hashshield_daemon.py"
         if not daemon_script.exists():
-            print(f"{C_RED}[ERROR] Daemon script not found: {daemon_script}{C_RESET}")
+            print(f"{C_RED}[ERROR] Daemon script not found.{C_RESET}")
             sys.exit(1)
         print(f"{C_GREEN}[*] Launching HashShield Daemon...{C_RESET}")
         try:
@@ -600,122 +625,76 @@ def main():
         print(f"\n{C_RED}[!] Error: Provide a path or use --daemon.{C_RESET}")
         sys.exit(1)
 
-    # Setup Logging
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s")
 
-    # Cleanup Temp from Previous Crashes
-    if TEMP_SCAN_DIR.exists():
-        try:
-            shutil.rmtree(TEMP_SCAN_DIR)
-        except: pass
+    if TEMP_SCAN_DIR.exists(): shutil.rmtree(TEMP_SCAN_DIR, ignore_errors=True)
 
     target_path = Path(args.scan_path)
     if not target_path.exists():
         logging.critical(f"{C_RED}Path not found: {target_path}{C_RESET}")
         sys.exit(1)
 
-    # Collection Phase
     filepaths_to_scan = []
-    skipped_count = 0
-    
     if target_path.is_file():
         if args.scan_archives and target_path.suffix.lower() in ['.zip', '.tar', '.gz', '.tgz']:
              TEMP_SCAN_DIR.mkdir(exist_ok=True)
              extract_dir = TEMP_SCAN_DIR / f"{target_path.name}_extracted"
              if extract_archive(str(target_path), extract_dir):
-                  files, skips = get_all_files_recursively(str(extract_dir), args.exclude_ext, scan_archives=True)
+                  files, _ = get_all_files_recursively(str(extract_dir), args.exclude_ext, scan_archives=True)
                   filepaths_to_scan.extend(files)
         else:
              filepaths_to_scan.append(str(target_path))
-             
     elif target_path.is_dir():
-        filepaths_to_scan, skipped_count = get_all_files_recursively(str(target_path), args.exclude_ext, scan_archives=args.scan_archives)
+        filepaths_to_scan, _ = get_all_files_recursively(str(target_path), args.exclude_ext, scan_archives=args.scan_archives)
 
     if not filepaths_to_scan:
         logging.info("No files to scan.")
         sys.exit(0)
 
-    # Scan Phase
     try:
-        # AUTO-START BRAIN
         ensure_daemon_running()
-        
         print("\nRunning scan...\n")
         results = asyncio.run(main_async_scanner(filepaths_to_scan, args))
 
-        # Reporting Phase
         print("\n\n--- SCAN RESULTS ---")
-        infected_results = []
-        uploaded_results = []
-        clean_count = 0
+        infected, uploaded = [], []
+        for fp, is_mal, msg in results:
+            if is_mal: infected.append((fp, msg))
+            elif "uploaded" in msg.lower() or "error" in msg.lower(): uploaded.append((fp, msg))
 
-        for filepath, is_malicious, message in results:
-            if is_malicious:
-                infected_results.append((filepath, message))
-            elif "uploaded" in message.lower() or "error" in message.lower() or "limit" in message.lower():
-                uploaded_results.append((filepath, message))
-            else:
-                clean_count += 1
-
-        if infected_results:
-            print(f"\n{C_YELLOW}--- DETECTED THREATS ({len(infected_results)}) ---{C_RESET}")
-            take_action_for_all = None
-            for i, (filepath, message) in enumerate(sorted(infected_results)):
-                display_path = format_display_path(filepath)
-                
+        if infected:
+            print(f"\n{C_YELLOW}--- DETECTED THREATS ({len(infected)}) ---{C_RESET}")
+            action_all = None
+            for i, (fp, msg) in enumerate(sorted(infected)):
                 print("-" * 40)
-                print(f"  FILE    : {display_path}")
+                print(f"  FILE    : {format_display_path(fp)}")
                 print(f"  STATUS  : {C_RED}INFECTED{C_RESET}")
-                print(f"  REASON  : {message}")
-                
-                if "temp_scans" in str(filepath):
-                    print(f"  {C_YELLOW}[!] Note: File is inside an archive. Delete the source archive to remove.{C_RESET}")
+                print(f"  REASON  : {msg}")
+                if "temp_scans" in str(fp):
+                    print(f"  {C_YELLOW}[!] File inside archive.{C_RESET}")
                 else:
-                    if take_action_for_all:
-                        action = take_action_for_all
-                    else:
-                        prompt = (
-                            f"\n  Action for this file? "
-                            f"({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | "
-                            f"({C_YELLOW}A{C_RESET})ll Quarantine, A({C_RED}l{C_RESET})l Delete, All ({C_GREEN}S{C_RESET})kip? "
-                        )
-                        action = input(prompt).lower()
+                    if action_all: action = action_all
+                    else: action = input(f"\n  Action? ({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | ({C_YELLOW}A{C_RESET})ll Q, A({C_RED}l{C_RESET})l D, All ({C_GREEN}S{C_RESET})kip? ").lower()
                     
-                    if action == 'q':
-                        quarantine_file(filepath, message)
-                    elif action == 'd':
-                        delete_file(filepath, message)
-                    elif action == 'i':
-                        logging.info(f"Ignored file: {filepath}")
-                    elif action == 'a':
-                        take_action_for_all = 'q'
-                        quarantine_file(filepath, message)
-                    elif action == 'l':
-                        take_action_for_all = 'd'
-                        delete_file(filepath, message)
-                    elif action == 's':
-                        take_action_for_all = 'i'
-                    else:
-                        logging.info(f"Unknown action. Ignored file: {filepath}")
-
-        if uploaded_results:
+                    if action == 'q': quarantine_file(fp, msg)
+                    elif action == 'd': delete_file(fp, msg)
+                    elif action == 'a': action_all = 'q'; quarantine_file(fp, msg)
+                    elif action == 'l': action_all = 'd'; delete_file(fp, msg)
+                    elif action == 's': action_all = 'i'
+                    
+        if uploaded:
              print(f"\n{C_YELLOW}--- OTHER STATUSES ---{C_RESET}")
-             for fp, msg in uploaded_results:
-                 print(f"  - {format_display_path(fp)} : {msg}")
+             for fp, msg in uploaded: print(f"  - {format_display_path(fp)} : {msg}")
 
         print("-" * 40)
-        print(f"Scan complete. Found {len(infected_results)} malicious files.")
-        if not infected_results and not uploaded_results:
-             print(f"All {len(results)} files scanned are clean.")
+        print(f"Scan complete. Found {len(infected)} malicious files.")
+
+        if args.output:
+            generate_report(results, args.output, args.format)
 
     finally:
-        # CLEANUP
-        if TEMP_SCAN_DIR.exists():
-            try:
-                shutil.rmtree(TEMP_SCAN_DIR)
-            except Exception as e:
-                logging.warning(f"Cleanup failed: {e}")
+        if TEMP_SCAN_DIR.exists(): shutil.rmtree(TEMP_SCAN_DIR, ignore_errors=True)
 
 if __name__ == "__main__":
     main()
