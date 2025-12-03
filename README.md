@@ -2,7 +2,8 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange?style=flat-square&logo=github&labelColor=black)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.8+-orange?style=flat-square&logo=python&labelColor=black)](https://www.python.org/downloads/)
-[![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=flat-square&logo=linux&labelColor=black)](https://www.python.org/downloads/)
+[![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)](https://www.linux.org/)
+[![Windows](https://img.shields.io/badge/Windows-0078D6?style=flat-square&logo=windows&logoColor=white)](https://www.microsoft.com/)
 [![Latest Release](https://img.shields.io/github/v/release/VelkaRepo/HashShield?style=flat-square&color=orange&labelColor=black)](https://github.com/VelkaRepo/HashShield/releases/latest)
 
 ![HashShield Banner](./img/HashShield-banner.png)
