@@ -1,5 +1,6 @@
 # HashShield
 
+[![CI Status](https://img.shields.io/github/actions/workflow/status/VelkaRepo/HashShield/test.yml?style=flat-square&label=Build&logo=github&labelColor=black&color=orange)](https://github.com/VelkaRepo/HashShield/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-orange?style=flat-square&logo=github&labelColor=black)](https://opensource.org/licenses/MIT)
 [![Python](https://img.shields.io/badge/Python-3.8+-orange?style=flat-square&logo=python&labelColor=black)](https://www.python.org/downloads/)
 [![Linux](https://img.shields.io/badge/Linux-FCC624?style=flat-square&logo=linux&logoColor=black)](https://www.linux.org/)
