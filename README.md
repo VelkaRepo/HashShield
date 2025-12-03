@@ -1,47 +1,46 @@
 # HashShield
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
-[![Python](https://img.shields.io/badge/Python-3.8+-blue.svg)](https://www.python.org/downloads/)
-[![Latest Release](https://img.shields.io/github/v/release/VelkaRepo/HashShield)](https://github.com/VelkaRepo/HashShield/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-orange?style=flat-square&logo=github&labelColor=black)](https://opensource.org/licenses/MIT)
+[![Python](https://img.shields.io/badge/Python-3.8+-orange?style=flat-square&logo=python&labelColor=black)](https://www.python.org/downloads/)
+[![Platform](https://img.shields.io/badge/Platform-Linux-orange?style=flat-square&logo=linux&labelColor=black)](https://www.python.org/downloads/)
+[![Latest Release](https://img.shields.io/github/v/release/VelkaRepo/HashShield?style=flat-square&color=orange&labelColor=black)](https://github.com/VelkaRepo/HashShield/releases/latest)
 
 ![HashShield Banner](./img/HashShield-banner.png)
 
-**HashShield** is a **hybrid antivirus engine** written in Python that utilizes a **Client-Server Architecture** to combine instant local detection (Hash + Heuristics) with cloud-powered analysis (VirusTotal), providing enterprise-level scanning capabilities on Linux and Windows systems.
+**HashShield** is a professional-grade **hybrid antivirus engine** written in Python. It utilizes a **Client-Server Architecture** to combine instant local detection (Hash + Heuristics) with cloud-powered analysis (VirusTotal), providing enterprise-level scanning capabilities.
 
-## Key Features
+---
 
-- **Hybrid Scanning Engine**
-  A multi-layered defense pipeline:
-  1. **Shield Engine (Local):** Instant O(1) detection using 2.5M+ signatures.
-  2. **Heuristic Engine (Local):** Uses Normalized Database (.ndb) patterns to detect malware variants even if the hash changes.
-  3. **YARA Rules (Local):** Pattern matching for specific threat behaviors (e.g., Meterpreter payloads).
-  4. **Cloud Intelligence (API):** Fallback to VirusTotal for unknown "Zero-Day" threats.
+## 📖 Table of Contents
 
-- **High-Performance Daemon**
-  Runs a background service (`hashshield --daemon`) that keeps the signature database loaded in RAM, allowing for **instant scanning** without reloading the DB for every file.
+- [Key Features](#-key-features)
+- [Architecture](#%EF%B8%8F-architecture)
+- [Installation](#-installation)
+- [Quick Start](#-quick-start)
+- [Documentation](#-documentation)
 
-- **Smart Rate Limiting**
-  Includes a `--threads` option to respect API quotas or maximize speed (`asyncio` concurrency).
+---
 
-- **Resilience & Offline Mode**
-  Works fully offline using the local engine. Automatically upgrades to cloud scanning when an internet connection is available.
+## 🚀 Key Features
 
-- **Custom Extensibility**
-  Supports custom `.hdb` (Hash) and `.ndb` (Hex Pattern) databases—simply drop them in the `src/` folder.
+- **Hybrid Engine:** Combines Local Signatures (2.5M+), Heuristics (NDB/YARA), and Cloud Intelligence (VirusTotal).
+- **Daemon Architecture:** Background service for **O(1) Instant Scanning**.
+- **Archive Scanning:** Recursively scans inside `.zip`, `.tar`, and `.tar.gz` files.
+- **Professional Reporting:** Exports audit logs to **TXT, CSV, and JSON**.
+- **Resilience:** Auto-healing database updates and offline fallback modes.
 
-- **Interactive Response**
-  Prompts user for action (Quarantine/Delete/Ignore) upon detection.
+---
 
-## Architecture
+## 🏗️ Architecture
 
-HashShield separates the **Scanner (Client)** from the **Engine (Server)** to maximize performance:
+HashShield separates the **Scanner (Client)** from the **Engine (Server)**:
 
 ```mermaid
 graph LR
     A[CLI Client] -->|File Path| B(Local Daemon);
     B -->|Fast Hash Check| C{Local DB};
     B -->|Heuristic Check| D{NDB Patterns};
-    C -- Match --> E[ INFECTED];
+    C -- Match --> E[🚨 INFECTED];
     D -- Match --> E;
     C -- No Match --> F[YARA Rules];
     F -- Match --> E;
@@ -50,103 +49,54 @@ graph LR
     H --> I[Final Verdict];
 ```
 
-## Requirements
+---
 
-- Python **3.8+**
-- A [VirusTotal API key](https://www.virustotal.com/gui/join-us) (Free for personal use)
-- **RAM:** ~500MB (for the Daemon to hold signatures in memory)
+## 📦 Installation
 
-## Installation & Setup
+1. **Clone & Setup Environment**
+   ```bash
+   git clone https://github.com/VelkaRepo/HashShield.git
+   cd HashShield
+   python3 -m venv .venv
+   source .venv/bin/activate
+   pip install -r requirements.txt
+   ```
 
-### 1. Clone & Environment
+2. **Install Global Command**
+   ```bash
+   pip install -e .
+   ```
 
-```bash
-git clone https://github.com/VelkaRepo/HashShield.git
-cd HashShield
+3. **Database Setup**
+   The engine will attempt to download the database automatically upon first launch.
+   
+   *Manual Option:* Download `main.cvd` from [Releases](https://github.com/VelkaRepo/HashShield/releases) and place in `src/`.
 
-# Create Virtual Environment (Recommended)
-python3 -m venv .venv
-source .venv/bin/activate  # On Linux/Mac
-# .\.venv\Scripts\Activate.ps1  # On Windows
+4. **Configuration**
+   Create `src/.env` with your API key:
+   ```env
+   VIRUSTOTAL_API_KEY="YOUR_KEY"
+   SHIELD_DAEMON_PORT=65432
+   ```
 
-# Install Dependencies
-pip install -r requirements.txt
-```
+---
 
-### 2. Install the Project (Editable Mode)
-This allows the `hashshield` command to work globally.
+## ⚡ Quick Start
 
-```bash
-pip install -e .
-```
-
-### 3. Database Setup (Crucial)
-HashShield needs the signature database (`main.cvd`).
-
-* **Option A (Automatic):** Run the daemon (`hashshield --daemon`). It will attempt to download the database automatically.
-* **Option B (Manual - Recommended):** Download `main.cvd` from the [Releases Page](https://github.com/VelkaRepo/HashShield/releases) and place it inside the `src/` folder.
-
-### 4. Configuration (.env)
-Create a `.env` file inside the `src/` directory:
-
-```env
-VIRUSTOTAL_API_KEY="YOUR_API_KEY_HERE"
-SHIELD_DAEMON_PORT=65432
-```
-
-## Usage
-
-HashShield uses a **Two-Step Process** (Daemon + Client).
-
-### Step 1: Start the Engine (Daemon)
-Open a terminal and launch the background service. This loads the 2.5 million signatures into RAM.
-
+**1. Start the Engine (Daemon)**
 ```bash
 hashshield --daemon
 ```
 
-*Wait until you see "Daemon Ready!"*
-
-### Step 2: Run the Scan (Client)
-Open a **new** terminal tab and scan any directory instantly.
-
+**2. Scan a Directory**
 ```bash
-# Scan the current directory
 hashshield .
-
-# Scan a specific path
-hashshield /home/user/Downloads
-
-# Scan with 20 concurrent threads (Fast, but consumes API quota)
-hashshield . --threads 20
-
-# Upload unknown files to VirusTotal for analysis
-hashshield . --upload
 ```
 
-## Managing Exclusions
+---
 
-To prevent scanning specific files or folders (like log files), create a `.shieldignore` file in the target directory:
+## 📚 Documentation
 
-```text
-# .shieldignore example
-*.log
-secret_backup.tar.gz
-test_data/
-```
+For advanced usage, including **Archive Scanning**, **Reporting**, and **Automation**, please consult the **User Guide**:
 
-## Testing (EICAR)
-
-To verify the engine is working without using real malware, you can generate an EICAR test file.
-
-```bash
-# Create a fake virus (Safe to handle)
-echo -n 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > eicar.com
-
-# Scan it
-hashshield eicar.com
-```
-
-**Expected Result:**
-> `STATUS : INFECTED`
-> `REASON : DANGER! Locally detected by YARA rule: EICAR_Test_String`
+👉 **[Read the Full Usage Guide (USAGE.md)](./USAGE.md)**
