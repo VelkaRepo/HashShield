@@ -1,6 +1,5 @@
 aadict==0.2.3
 about-time==4.2.1
-above==2.8
 acstore==20240407
 adblockparser==0.7
 adns==1.4+py1
