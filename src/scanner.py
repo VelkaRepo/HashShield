@@ -674,8 +674,13 @@ def main():
                 if "temp_scans" in str(fp):
                     print(f"  {C_YELLOW}[!] File inside archive.{C_RESET}")
                 else:
-                    if action_all: action = action_all
-                    else: action = input(f"\n  Action? ({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | ({C_YELLOW}A{C_RESET})ll Q, A({C_RED}l{C_RESET})l D, All ({C_GREEN}S{C_RESET})kip? ").lower()
+                    if action_all: 
+                        action = action_all
+                    elif not sys.stdin.isatty():
+                        print(f"  {C_YELLOW}[!] Non-interactive mode detected. Defaulting to 'Ignore'.{C_RESET}")
+                        action = 'i'
+                    else: 
+                        action = input(f"\n  Action? ({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | ({C_YELLOW}A{C_RESET})ll Q, A({C_RED}l{C_RESET})l D, All ({C_GREEN}S{C_RESET})kip? ").lower()
                     
                     if action == 'q': quarantine_file(fp, msg)
                     elif action == 'd': delete_file(fp, msg)
