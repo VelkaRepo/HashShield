@@ -1,0 +1,73 @@
+name: HashShield CI Pipeline
+
+on:
+  push:
+    branches: [ "main" ]
+  pull_request:
+    branches: [ "main" ]
+
+jobs:
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+    # 1. Check out your code
+    - uses: actions/checkout@v3
+
+    # 2. Set up Python
+    - name: Set up Python 3.10
+      uses: actions/setup-python@v4
+      with:
+        python-version: "3.10"
+
+    # 3. Install System Dependencies (YARA headers for compiling)
+    - name: Install System Dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y libyara-dev
+
+    # 4. Install Python Dependencies
+    - name: Install Dependencies
+      run: |
+        python -m pip install --upgrade pip
+        pip install -r requirements.txt
+        # Install HashShield in editable mode
+        pip install -e .
+
+    # 5. Configure Environment (Mock the DB to save time)
+    - name: Setup Mock Database (CI Optimization)
+      run: |
+        # Create a dummy main.cvd so the engine doesn't try to download 200MB
+        touch src/main.cvd
+        
+        # Create a custom DB with just EICAR for testing
+        # Hash for "X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*"
+        echo "44d88612fea8a8f36de82e1278abb02f:68:Win.Test.EICAR_HDB-1" > src/ci_test.hdb
+        
+        # Create the .env file
+        echo "SHIELD_DAEMON_PORT=65432" > src/.env
+
+    # 6. Start Daemon in Background
+    - name: Start HashShield Daemon
+      run: |
+        hashshield --daemon &
+        echo "Daemon started in background..."
+        sleep 5  # Give it time to load the tiny CI database
+
+    # 7. Run the Test
+    - name: Run EICAR Test
+      run: |
+        # Create a test file (No Newline!)
+        echo -n 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-ANTIVIRUS-TEST-FILE!$H+H*' > eicar_test.txt
+        
+        # Scan it
+        hashshield eicar_test.txt
+        
+        # Verify Output (Grep for success)
+        if hashshield eicar_test.txt | grep -q "INFECTED"; then
+          echo "✅ CI PASSED: Malware detected successfully."
+          exit 0
+        else
+          echo "❌ CI FAILED: Malware was NOT detected."
+          exit 1
+        fi
