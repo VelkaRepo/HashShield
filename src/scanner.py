@@ -1,31 +1,34 @@
-import hashlib
-import aiohttp
-import asyncio
-import os
-import sys
+# --- Standard Library Imports ---
 import argparse
-import logging
-import fnmatch
-import shutil
-import textwrap
-import socket
-import subprocess
-import zipfile
-import tarfile
-import time
-import json
+import asyncio
+import base64
 import csv
+import fnmatch
+import hashlib
+import io
+import json
+import logging
+import os
 import platform
 import getpass
-import base64
-import io
+import shutil
+import socket
+import subprocess
+import sys
+import tarfile
+import textwrap
+import time
+import zipfile
 from datetime import datetime
 from pathlib import Path
+
+# --- Third-Party Imports ---
+import aiohttp
+import colorama
 from dotenv import load_dotenv
 from tqdm.asyncio import tqdm
-import colorama
 
-# --- OPTIONAL IMPORTS FOR HTML REPORTING ---
+# --- Optional Imports (Reporting) ---
 try:
     from jinja2 import Environment, FileSystemLoader
     import matplotlib.pyplot as plt
@@ -33,7 +36,7 @@ try:
 except ImportError:
     HAS_REPORTING = False
 
-# --- YARA INTEGRATION ---
+# --- Critical Imports (Engine) ---
 try:
     import yara
 except ImportError:
