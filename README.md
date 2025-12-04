@@ -49,6 +49,7 @@ graph LR
     F -- No Match --> G[Cloud Check];
     G -->|API Query| H[VirusTotal];
     H --> I[Final Verdict];
+    E --> I;
 ```
 
 ---
