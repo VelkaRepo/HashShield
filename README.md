@@ -28,7 +28,7 @@
 - **Hybrid Engine:** Combines Local Signatures (2.5M+), Heuristics (NDB/YARA), and Cloud Intelligence (VirusTotal).
 - **Daemon Architecture:** Background service for **O(1) Instant Scanning**.
 - **Archive Scanning:** Recursively scans inside `.zip`, `.tar`, and `.tar.gz` files.
-- **Professional Reporting:** Exports audit logs to **TXT, CSV, and JSON**.
+- **Professional Reporting:** Exports audit logs to **HTML, TXT, CSV, and JSON**.
 - **Resilience:** Auto-healing database updates and offline fallback modes.
 
 ---

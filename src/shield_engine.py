@@ -3,23 +3,16 @@ import io
 import os
 import requests
 import glob
-import subprocess
 import time
-import yara  # pip install yara-python
+import yara
 
 # --- CONFIGURATION ---
-# "0" means NO LIMIT. Load EVERYTHING.
-# Warning: This will consume 1.5GB+ RAM and take ~60 seconds to compile.
 NDB_SIGNATURE_LIMIT = 0
 CHUNK_SIZE = 8000 # Safety limit per YARA rule (Max is usually 10k)
 
-# NEW: Direct download from your stable GitHub Release
 DB_URL = "https://github.com/VelkaRepo/HashShield/releases/download/v2.0-beta/main.cvd"
 
 def format_clamav_to_yara(hex_string):
-    """
-    Converts ClamAV 'Smashed' Hex to YARA 'Spaced' Hex.
-    """
     if any(c in hex_string for c in "*{}-()"): 
         return None
     try:
@@ -29,27 +22,30 @@ def format_clamav_to_yara(hex_string):
         return None
 
 def update_database(local_path):
-    """
-    Forces a fresh download of the database using system wget.
-    """
-    print(f"[Shield Engine] Starting update from {DB_URL}...")
-    
-    command = [
-        "wget",
-        "--user-agent=Mozilla/5.0",
-        "-O", local_path,
-        DB_URL
-    ]
+    print(f"[Shield Engine] Starting update from GitHub Release...")
+    print(f"[Shield Engine] Downloading {DB_URL}...")
     
     try:
-        subprocess.run(command, check=True)
-        print("[Shield Engine] Update successful!")
+        headers = {'User-Agent': 'HashShield/2.0'}
+        with requests.get(DB_URL, stream=True, headers=headers) as r:
+            r.raise_for_status()
+            total_size = int(r.headers.get('content-length', 0))
+            downloaded = 0
+            
+            with open(local_path, 'wb') as f:
+                for chunk in r.iter_content(chunk_size=8192): 
+                    f.write(chunk)
+                    downloaded += len(chunk)
+                    # Optional: Simple progress indicator (prints every 10MB)
+                    if total_size > 0 and downloaded % (1024*1024*10) == 0:
+                        mb_downloaded = downloaded // (1024*1024)
+                        mb_total = total_size // (1024*1024)
+                        print(f"[Shield Engine] Downloading... {mb_downloaded}/{mb_total} MB", end='\r')
+                        
+        print("\n[Shield Engine] Update successful!")
         return True
-    except subprocess.CalledProcessError:
-        print("[Shield Engine] Update failed. Check internet connection.")
-        return False
-    except FileNotFoundError:
-        print("[Shield Engine] Error: 'wget' is not installed on this system.")
+    except Exception as e:
+        print(f"\n[Shield Engine] Update failed: {e}")
         return False
 
 def download_clamav_hashes():
@@ -58,7 +54,6 @@ def download_clamav_hashes():
     
     hash_db = {}
     
-    # We will build a massive string containing MANY rules
     yara_rules_source = ""
     ndb_total_count = 0
     
@@ -93,7 +88,7 @@ def download_clamav_hashes():
             
             with tarfile.open(fileobj=io.BytesIO(tar_data), mode='r:gz') as tar:
                 for member in tar.getmembers():
-                    # --- HASHE (Fast) ---
+                    # --- PARSE HASHES ---
                     if member.name.endswith('.hdb') or member.name.endswith('.hsb'):
                         f = tar.extractfile(member)
                         if f:
@@ -104,38 +99,28 @@ def download_clamav_hashes():
                                         hash_db[parts[0]] = parts[2]
                                 except: continue
 
-                    # --- HEURISTICS (Heavy) ---
+                    # --- PARSE PATTERNS ---
                     if member.name.endswith('.ndb'):
                         f = tar.extractfile(member)
                         if f:
                             for line in f:
                                 try:
-                                    # Check Global Limit (if set)
-                                    if NDB_SIGNATURE_LIMIT > 0 and ndb_total_count >= NDB_SIGNATURE_LIMIT:
-                                        break
-                                        
                                     parts = line.decode('utf-8').strip().split(':')
                                     if len(parts) >= 4:
                                         raw_sig = parts[3]
                                         yara_sig = format_clamav_to_yara(raw_sig)
                                         
                                         if yara_sig:
-                                            # Add string to current rule
                                             yara_rules_source += f"    $s_{ndb_total_count} = {{ {yara_sig} }}\n"
                                             ndb_total_count += 1
                                             current_chunk_count += 1
                                             
-                                            # CHUNKING LOGIC:
-                                            # If we hit 8000 strings, close this rule and start a new one.
                                             if current_chunk_count >= CHUNK_SIZE:
                                                 yara_rules_source += "\ncondition:\n    any of them\n}\n\n"
-                                                
                                                 current_rule_index += 1
                                                 current_chunk_count = 0
                                                 yara_rules_source += f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n"
-                                                
                                 except: continue
-                                
         except Exception as e:
             print(f"[Shield Engine] Error parsing DB: {e}")
 
@@ -157,14 +142,11 @@ def download_clamav_hashes():
     compiled_yara = None
     if ndb_total_count > 0:
         print(f"[Shield Engine] Compiling {ndb_total_count} patterns into RAM...")
-        print("[Shield Engine] (WARNING: This may freeze your system for 30-60s)")
         try:
             compiled_yara = yara.compile(source=yara_rules_source)
             print(f"[Shield Engine] HEURISTIC GOD MODE ONLINE. ({ndb_total_count} rules)")
         except yara.Error as e:
             print(f"[Shield Engine] YARA Compilation Failed: {e}")
-            # Fallback: Print the error line to debug
-            # print(yara_rules_source[-500:]) 
     
     print(f"[Shield Engine] Hash Engine Online. Loaded {len(hash_db)} signatures.")
     return hash_db, compiled_yara

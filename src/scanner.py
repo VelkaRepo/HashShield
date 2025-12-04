@@ -432,7 +432,7 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
     
     if file_hash in cache:
         return filepath, (cache[file_hash] == 'malicious'), f"Result from cache: {cache[file_hash]}"
-        
+    logging.debug(f"Querying VirusTotal API for hash: {file_hash}...")    
     headers = {"x-apikey": API_KEY, "Accept": "application/json"}
     try:
         async with session.get(f"{API_URL}{file_hash}", headers=headers, timeout=20) as response:
