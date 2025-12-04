@@ -58,8 +58,7 @@ graph LR
     G -->|API Query| H[VirusTotal];
     H --> I[Final Verdict];
     D --> I;
-
----
+```
 
 ## 📦 Installation
 
