@@ -39,18 +39,25 @@ HashShield separates the **Scanner (Client)** from the **Engine (Server)**:
 
 ```mermaid
 graph LR
-    A[CLI Client] -->|File Path| B(Local Daemon);
-    B -->|Fast Hash Check| C{Local DB};
-    B -->|Heuristic Check| D{NDB Patterns};
-    C -- Match --> E[🚨 INFECTED];
-    D -- Match --> E;
-    C -- No Match --> F[YARA Rules];
-    F -- Match --> E;
+    subgraph Client
+        A[CLI Scanner]
+    end
+    
+    subgraph Server_Daemon ["🛡️ Shield Engine Daemon (Local)"]
+        direction TB
+        B(Incoming Request) --> C{Hash Database};
+        C -- Match (Fast) --> D[🚨 INFECTED];
+        C -- No Match --> E{NDB Heuristics};
+        E -- Match (Smart) --> D;
+    end
+
+    A -->|File Path| B
+    E -- No Match --> F{YARA Rules};
+    F -- Match --> D;
     F -- No Match --> G[Cloud Check];
     G -->|API Query| H[VirusTotal];
     H --> I[Final Verdict];
-    E --> I;
-```
+    D --> I;
 
 ---
 
