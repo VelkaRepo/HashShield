@@ -109,6 +109,16 @@ hashshield --daemon
 ```bash
 hashshield .
 ```
+> **Note:** The scan command will automatically start the daemon if it's not already running. No need to manually start it with `--daemon` unless you want to run it in a separate terminal.
+
+> **Stopping the Daemon:**
+> - **Linux/macOS:** `pkill -f "hashshield --daemon"`
+> - **Windows:** 
+>   ```cmd
+>   taskkill /F /IM python.exe /FI "WINDOWTITLE eq hashshield"
+>   ```
+>   or use Task Manager to end the Python process named "hashshield"
+
 
 ---
 
