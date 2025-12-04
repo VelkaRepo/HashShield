@@ -245,8 +245,6 @@ def get_all_files_recursively(directory_path, excluded_extensions, scan_archives
         if is_hard_excluded: continue
             
         if scan_archives and item.suffix.lower() in ['.zip', '.tar', '.gz', '.tgz']:
-            # --- INTELLIGENT EXTRACTION PATH (FIXED) ---
-            # Extract nested archives inside their parent's folder to preserve hierarchy
             if str(TEMP_SCAN_DIR) in str(item.parent):
                 unique_extract_dir = item.parent / f"{item.name}_extracted"
             else:

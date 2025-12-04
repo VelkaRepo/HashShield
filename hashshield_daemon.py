@@ -4,7 +4,7 @@ import os
 import sys
 from dotenv import load_dotenv
 
-# --- KONFIGURASI ---
+# --- CONFIGURATION ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 env_path = os.path.join(current_dir, 'src', '.env')
 load_dotenv(env_path)
@@ -17,11 +17,8 @@ except ImportError:
     sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
     from shield_engine import download_clamav_hashes
 
-# --- LOGIKA SCANNING (DIPERBARUI UNTUK MENGEMBALIKAN NAMA) ---
+# --- SCAN LOGIC ---
 def scan_file_robust(filepath, hash_db, yara_engine):
-    """
-    Mengembalikan NAMA virus jika terdeteksi, atau None jika bersih.
-    """
     if not os.path.exists(filepath):
         return None
 
@@ -54,9 +51,6 @@ def scan_file_robust(filepath, hash_db, yara_engine):
             try:
                 matches = yara_engine.match(filepath)
                 if matches:
-                    # Kita bisa mengambil nama rule yang cocok
-                    # Karena kita menumpuknya dalam satu rule besar, ini mungkin hanya nama rule utama
-                    # Tapi ini membuktikan NDB bekerja.
                     print(f"[ALERT] HEURISTIC MATCH (NDB) in {filepath}")
                     return "Heuristic.ClamAV.NDB.Match"
             except Exception as e:
@@ -67,7 +61,7 @@ def scan_file_robust(filepath, hash_db, yara_engine):
         
     return None
 
-# --- SERVER UTAMA ---
+# --- MAIN ---
 if __name__ == "__main__":
     print(f"--- HashShield Daemon v2.0 (Hybrid Engine) ---")
     
@@ -95,12 +89,9 @@ if __name__ == "__main__":
 
             print(f"Scanning: {filepath}")
 
-            # --- PERBAIKAN UTAMA DI SINI ---
-            # Kita tangkap nama virusnya
             detection_name = scan_file_robust(filepath, db_hashes, db_heuristics)
             
             if detection_name:
-                # Kita kirim format "INFECTED:NamaVirus"
                 response = f"INFECTED:{detection_name}".encode()
                 conn.send(response)
             else:

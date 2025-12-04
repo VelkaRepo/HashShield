@@ -9,7 +9,7 @@
 
 ![HashShield Banner](./img/HashShield-banner.png)
 
-**HashShield** is a professional-grade **hybrid antivirus engine** written in Python. It utilizes a **Client-Server Architecture** to combine instant local detection (Hash + Heuristics) with cloud-powered analysis (VirusTotal), providing enterprise-level scanning capabilities.
+**HashShield** is a professional-grade **hybrid antivirus engine** written in Python. It utilizes a **Client-Server Architecture** to combine instant local detection—powered by **2.5 million+ signatures** and **over 92,000 advanced heuristic patterns**—with cloud-based analysis (VirusTotal), providing enterprise-level scanning capabilities.
 
 ---
 
