@@ -55,14 +55,22 @@ graph LR
 
 ## 📦 Installation
 
-1. **Clone & Setup Environment**
-   ```bash
-   git clone https://github.com/VelkaRepo/HashShield.git
-   cd HashShield
-   python3 -m venv .venv
-   source .venv/bin/activate
-   pip install -r requirements.txt
-   ```
+1.  **Clone & Setup Environment**
+     ```bash
+     git clone [https://github.com/VelkaRepo/HashShield.git](https://github.com/VelkaRepo/HashShield.git)
+     cd HashShield
+     
+     # Linux / Mac
+     python3 -m venv .venv
+     source .venv/bin/activate
+     
+     # Windows (PowerShell)
+     python -m venv .venv
+     .\.venv\Scripts\Activate.ps1
+     
+     # Install Dependencies
+     pip install -r requirements.txt
+     ```
 
 2. **Install Global Command**
    ```bash
