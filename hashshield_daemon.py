@@ -81,15 +81,26 @@ if __name__ == "__main__":
     while True:
         try:
             conn, addr = server.accept()
-            filepath = conn.recv(1024).decode().strip()
+            request = conn.recv(1024).decode().strip()
             
-            if not filepath:
+            if not request:
                 conn.close()
                 continue
 
-            print(f"Scanning: {filepath}")
+            # --- STATS HANDLER ---
+            if request == "STATS":
+                hash_count = len(db_hashes)
+                heur_status = "Active" if db_heuristics else "Inactive"
 
-            detection_name = scan_file_robust(filepath, db_hashes, db_heuristics)
+                stats_msg = f"STATS:{hash_count}:{heur_status}"
+                conn.send(stats_msg.encode())
+                conn.close()
+                continue
+            # --------------------------
+
+            # Standard Scanning Logic
+            print(f"Scanning: {request}")
+            detection_name = scan_file_robust(request, db_hashes, db_heuristics)
             
             if detection_name:
                 response = f"INFECTED:{detection_name}".encode()

@@ -331,6 +331,33 @@ def ensure_daemon_running():
     print(f"\n{C_RED}[!] Daemon start timed out. Proceeding with limited scanning.{C_RESET}")
     return False
 
+def get_daemon_stats():
+    """Queries the daemon for loaded database statistics."""
+    try:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(0.5) # Fast timeout
+            s.connect(('127.0.0.1', DAEMON_PORT))
+            s.sendall(b"STATS")
+            response = s.recv(1024).decode()
+            
+            if response.startswith("STATS:"):
+                _, hash_count, heur_status = response.split(":")
+                return hash_count, heur_status
+    except:
+        return None, None
+    return None, None
+
+def check_cloud_status():
+    """Checks VirusTotal connectivity without using API quota."""
+    if not API_KEY:
+        return f"{C_RED}Disabled (No API Key){C_RESET}"
+    
+    try:
+        with socket.create_connection(("www.virustotal.com", 443), timeout=1.5):
+            return f"{C_GREEN}Online (Ready){C_RESET}"
+    except OSError:
+        return f"{C_YELLOW}Offline (Connection Failed){C_RESET}"
+
 # =======================================================
 # 3. CORE SCANNING LOGIC
 # =======================================================
@@ -634,6 +661,19 @@ def main():
         parser.print_help()
         print(f"\n{C_RED}[!] Error: Provide a path or use --daemon.{C_RESET}")
         sys.exit(1)
+
+    if not args.daemon:
+        db_count, heur_status = get_daemon_stats()
+        cloud_status = check_cloud_status()
+        if db_count:
+            print(f"{C_GREEN}[INFO] Connected to Shield Daemon Engine{C_RESET}")
+            print(f"{C_GREY}[INFO] Database Status : {C_BRIGHT}{db_count} signatures loaded{C_RESET}")
+            print(f"{C_GREY}[INFO] Heuristic Engine: {C_BRIGHT}{heur_status}{C_RESET}")
+            print(f"{C_GREY}[INFO] Cloud Engine    : {C_BRIGHT}{cloud_status}{C_RESET}")
+            
+        else:
+            if args.scan_path:
+                print(f"{C_YELLOW}[WARN] Daemon not detected. Starting temporary instance...{C_RESET}")
 
     log_level = logging.DEBUG if args.verbose else logging.INFO
     logging.basicConfig(level=log_level, format="[%(levelname)s] %(message)s")
