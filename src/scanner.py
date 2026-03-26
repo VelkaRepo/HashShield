@@ -579,59 +579,70 @@ def generate_chart_base64(dist_data):
         print(f"[!] Chart Upgrade Error: {e}")
         return None
 
-def generate_html_report(results, output_path):
-    """Fungsi utama pembuatan dashboard HTML."""
+def generate_html_report(results, output_path, scan_duration=0):
+    """Laporan versi Executive Hub: Menggabungkan metrik performa dan distribusi."""
     if not HAS_REPORTING: return
     
     try:
         env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
         template = env.get_template('report.html')
         
-        dist_data = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": 0}
-        report_data = []
+        # 1. Metrik Dasar
+        total_files = len(results)
+        infected_results = [item for item in results if item[1]]
+        infected_count = len(infected_results)
+        clean_count = total_files - infected_count
         
-        for f_path, is_inf, threat, engine in results:
-            if is_inf:
-                # Logika klasifikasi untuk grafik
-                if "Shield Engine" in engine:
-                    dist_data["Heuristic" if "Heuristic" in threat else "Hash"] += 1
-                elif "Cloud" in engine:
-                    dist_data["Cloud"] += 1
-            else:
-                dist_data["Clean"] += 1
+        # 2. Metrik Performa (Data untuk Pak Ivo)
+        files_per_sec = round(total_files / scan_duration, 2) if scan_duration > 0 else 0
+        
+        # 3. Distribusi Ancaman
+        dist_data = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean_count}
+        for _, _, threat, engine in infected_results:
+            if "Shield Engine" in engine:
+                dist_data["Heuristic" if "Heuristic" in threat else "Hash"] += 1
+            elif "Cloud" in engine:
+                dist_data["Cloud"] += 1
 
-            report_data.append({
-                'status': 'INFECTED' if is_inf else 'CLEAN',
-                'is_infected': is_inf,
-                'file': f_path,
-                'client': socket.gethostname(), # Otomatis ambil nama PC yang menjalankan scan
-                'engine': engine,
-                'threat': threat,
-                'badge_class': 'bg-danger' if is_inf else 'bg-success'
-            })
-            
-        # Panggil generator grafik
         chart_b64 = generate_chart_base64(dist_data)
 
+        # 4. Render dengan Metadata Lengkap
+        current_hostname = socket.gethostname()
+        try:
+            current_ip = socket.gethostbyname(current_hostname)
+        except:
+            current_ip = "127.0.0.1"
+
         html_out = template.render(
-            results=report_data,
+            results=[{
+                'status': 'INFECTED' if x[1] else 'CLEAN',
+                'is_infected': x[1],
+                'file': x[0],
+                'client': current_hostname,
+                'engine': x[3],
+                'threat': x[2],
+                'badge_class': 'bg-danger' if x[1] else 'bg-success'
+            } for x in results],
             summary={
-                'total': len(results),
-                'infected': sum(1 for x in results if x[1]),
-                'clean': len(results) - sum(1 for x in results if x[1])
+                'total': total_files,
+                'infected': infected_count,
+                'clean': clean_count,
+                'duration': round(scan_duration, 2),
+                'speed': files_per_sec,
+                'client': current_hostname,
+                'client_ip': current_ip
             },
-            chart_data=chart_b64, 
+            chart_data=chart_b64,
             scan_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
-            user=getpass.getuser(),
-            system=platform.system()
+            system_info=f"{platform.system()} {platform.release()}"
         )
         
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(html_out)
-        print(f"\n{C_GREEN}[+] Dashboard updated: {output_path}{C_RESET}")
+        print(f"\n{C_GREEN}[+] Executive Dashboard generated: {output_path}{C_RESET}")
         
     except Exception as e:
-        print(f"{C_RED}[!] Failed to generate report: {e}{C_RESET}")
+        print(f"{C_RED}[!] Report Error: {e}{C_RESET}")
 # =======================================================
 # 5. MAIN EXECUTION
 # =======================================================
@@ -735,7 +746,10 @@ def main():
     try:
         ensure_daemon_running()
         print("\nRunning scan...\n")
+        start_time = time.time()
         results = asyncio.run(main_async_scanner(filepaths_to_scan, args))
+        end_time = time.time()
+        scan_duration = end_time - start_time
 
         # --- POST-PROCESSING RESULTS ---
         infected_results = []
@@ -815,7 +829,7 @@ def main():
         # Memastikan fungsi yang dipanggil adalah generate_html_report
         if args.output or args.format == 'html':
             report_file = args.output if args.output else "report.html"
-            generate_html_report(final_report_list, report_file)
+            generate_html_report(final_report_list, report_file, scan_duration=scan_duration)
 
     finally:
         if TEMP_SCAN_DIR.exists(): shutil.rmtree(TEMP_SCAN_DIR, ignore_errors=True)

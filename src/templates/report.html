@@ -3,86 +3,222 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>HashShield Security Report</title>
+    <title>HashShield v2.0 | Executive Security Report</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <style>
-        body { background-color: #f8f9fa; }
-        .header-section { background: #212529; color: #ffc107; padding: 2rem 0; margin-bottom: 2rem; }
-        .card { border: none; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-        .status-infected { color: #dc3545; font-weight: bold; }
-        .status-clean { color: #198754; }
-        .engine-badge { font-size: 0.8em; }
+        :root {
+            --hs-dark: #1a1c1e;
+            --hs-gold: #ffc107;
+            --hs-danger: #c0392b;
+            --hs-success: #27ae60;
+        }
+
+        body { 
+            background-color: #f4f7fa; 
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+            color: #333;
+        }
+
+        /* Hero Section */
+        .hero-section { 
+            background: var(--hs-dark); 
+            color: white; 
+            padding: 40px 0; 
+            border-bottom: 5px solid var(--hs-gold);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.3);
+        }
+
+        /* Status Ribbon */
+        .status-ribbon { 
+            background: #ffffff; 
+            padding: 12px 0; 
+            font-size: 0.85rem; 
+            border-bottom: 1px solid #dee2e6;
+            color: #555;
+        }
+
+        /* Cards */
+        .pulse-card { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 25px; 
+            box-shadow: 0 4px 20px rgba(0,0,0,0.05); 
+            height: 100%;
+            border: 1px solid rgba(0,0,0,0.03);
+        }
+
+        .metric-box {
+            background: #f8f9fa;
+            border-radius: 8px;
+            padding: 15px;
+            border-left: 4px solid var(--hs-dark);
+            transition: transform 0.2s;
+        }
+
+        .metric-box:hover { transform: translateY(-3px); }
+
+        .metric-label { 
+            font-size: 0.7rem; 
+            color: #7f8c8d; 
+            text-transform: uppercase; 
+            font-weight: bold;
+            letter-spacing: 0.5px;
+        }
+
+        .metric-value { 
+            font-size: 1.4rem; 
+            font-weight: 800; 
+            color: var(--hs-dark);
+            line-height: 1.2;
+        }
+
+        /* Remediation Box */
+        .remediation-alert {
+            background: #fff8e1;
+            border-left: 4px solid var(--hs-gold);
+            padding: 15px;
+            border-radius: 6px;
+            font-size: 0.9rem;
+        }
+
+        /* Table Styling */
+        .table thead { background: var(--hs-dark); color: white; }
+        .badge-infected { background-color: var(--hs-danger); }
+        .badge-clean { background-color: var(--hs-success); }
+        
+        .table-hover tbody tr:hover {
+            background-color: rgba(255, 193, 7, 0.05);
+        }
+
+        .chart-container {
+            position: relative;
+            min-height: 300px;
+        }
     </style>
 </head>
 <body>
 
-    <div class="header-section text-center">
-        <h1>🛡️ HashShield v2.0</h1>
-        <p class="lead">Security Audit Report</p>
-        <p class="mb-0 text-white-50">Generated on: {{ scan_time }} | User: {{ user }} | System: {{ system }}</p>
+    <div class="hero-section text-center">
+        <div class="container">
+            <h1 class="display-5 fw-bold">🛡️ HashShield <span style="color: var(--hs-gold)">v2.0</span></h1>
+            <p class="lead opacity-75 mb-0">Hybrid Malware Detection & Remediation System</p>
+        </div>
     </div>
 
-    <div class="container">
+    <div class="status-ribbon">
+        <div class="container d-flex justify-content-between align-items-center">
+            <div>
+                <strong>Client Identity:</strong> 
+                <span class="badge bg-dark ms-1">{{ summary.client_ip }}</span> 
+                <span class="text-muted">({{ summary.client }})</span>
+            </div>
+            <div>
+                <strong>Scan Time:</strong> {{ scan_time }}
+            </div>
+            <div>
+                <strong>System Health:</strong> 
+                <span class="text-success fw-bold">● Engine Online</span>
+            </div>
+        </div>
+    </div>
+
+    <div class="container mt-4 pb-5">
         
-        <div class="row mb-4">
-            <div class="col-md-4">
-                <div class="card text-center p-3">
-                    <h3>{{ summary.total }}</h3>
-                    <p class="text-muted">Files Scanned</p>
+        <div class="row g-4 mb-4">
+            
+            <div class="col-lg-7">
+                <div class="pulse-card">
+                    <h5 class="fw-bold mb-4">Threat Distribution Analysis</h5>
+                    <div class="chart-container text-center">
+                        {% if chart_data %}
+                            <img src="data:image/png;base64,{{ chart_data }}" class="img-fluid" alt="Detection Chart">
+                        {% else %}
+                            <div class="py-5 text-muted">No visual data available for this session.</div>
+                        {% endif %}
+                    </div>
                 </div>
             </div>
-            <div class="col-md-4">
-                <div class="card text-center p-3 border-danger">
-                    <h3 class="text-danger">{{ summary.infected }}</h3>
-                    <p class="text-muted">Threats Detected</p>
-                </div>
-            </div>
-            <div class="col-md-4">
-                <div class="card text-center p-3 border-success">
-                    <h3 class="text-success">{{ summary.clean }}</h3>
-                    <p class="text-muted">Clean Files</p>
+
+            <div class="col-lg-5">
+                <div class="pulse-card d-flex flex-column justify-content-between">
+                    <div>
+                        <h5 class="fw-bold mb-4">Security Pulse</h5>
+                        <div class="row g-3">
+                            <div class="col-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">Files Scanned</div>
+                                    <div class="metric-value">{{ summary.total }}</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-box" style="border-left-color: var(--hs-danger);">
+                                    <div class="metric-label">Threats Blocked</div>
+                                    <div class="metric-value text-danger">{{ summary.infected }}</div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">Duration</div>
+                                    <div class="metric-value">{{ summary.duration }}<small>s</small></div>
+                                </div>
+                            </div>
+                            <div class="col-6">
+                                <div class="metric-box">
+                                    <div class="metric-label">Throughput</div>
+                                    <div class="metric-value">{{ summary.speed }}<small> f/s</small></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div class="remediation-alert mt-4">
+                        <div class="d-flex">
+                            <div class="me-3 fs-3">🛡️</div>
+                            <div>
+                                <h6 class="fw-bold mb-1 text-warning-emphasis">Remediation Success</h6>
+                                <p class="mb-0 small text-muted">
+                                    Semua ancaman telah dipindahkan secara otomatis ke <strong>Karantina Terisolasi</strong> dengan status <em>No-Execute</em>.
+                                </p>
+                            </div>
+                        </div>
+                    </div>
                 </div>
             </div>
         </div>
 
-        <div class="row mb-4">
-            <div class="col-md-8 offset-md-2 text-center">
-                <div class="card p-3">
-                    <h5>Threat Distribution</h5>
-                    {% if chart_data %}
-                    <img src="data:image/png;base64,{{ chart_data }}" class="img-fluid" alt="Scan Chart">
-                    {% else %}
-                    <p>No data to display.</p>
-                    {% endif %}
-                </div>
-            </div>
-        </div>
-
-        <div class="card p-4">
-            <h4 class="mb-3">Detailed Findings</h4>
+        <div class="pulse-card">
+            <h5 class="fw-bold mb-4">Detailed Forensic Evidence</h5>
             <div class="table-responsive">
-                <table class="table table-hover">
-                    <thead class="table-dark">
+                <table class="table table-hover align-middle border">
+                    <thead>
                         <tr>
-                            <th>Status</th>
-                            <th>Origin/Client</th>
-                            <th>File Path</th>
-                            <th>Engine</th>
-                            <th>Threat Name</th>
+                            <th style="width: 100px;">Status</th>
+                            <th>Origin PC</th>
+                            <th>File Path & Name</th>
+                            <th>Detection Engine</th>
+                            <th>Threat Identification</th>
                         </tr>
                     </thead>
                     <tbody>
                         {% for item in results %}
                         <tr>
-                            <td class="{{ 'status-infected' if item.is_infected else 'status-clean' }}">
-                                {{ item.status }}
-                            </td>
-                            <td><span class="badge bg-secondary">{{ item.client }}</span></td>
-                            <td style="word-break: break-all;">{{ item.file }}</td>
                             <td>
-                                <span class="badge {{ item.badge_class }} engine-badge">{{ item.engine }}</span>
+                                <span class="badge {{ 'badge-infected' if item.is_infected else 'badge-clean' }} w-100">
+                                    {{ item.status }}
+                                </span>
                             </td>
-                            <td>{{ item.threat }}</td>
+                            <td><small class="fw-bold text-muted">{{ item.client }}</small></td>
+                            <td style="max-width: 350px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="{{ item.file }}">{{ item.file }}</code>
+                            </td>
+                            <td>
+                                <span class="badge bg-light text-dark border">{{ item.engine }}</span>
+                            </td>
+                            <td>
+                                <span class="{{ 'text-danger fw-bold' if item.is_infected else 'text-success' }}">
+                                    {{ item.threat }}
+                                </span>
+                            </td>
                         </tr>
                         {% endfor %}
                     </tbody>
@@ -90,10 +226,11 @@
             </div>
         </div>
 
-        <div class="text-center mt-5 mb-5 text-muted">
-            <small>HashShield Security Engine | Final Year Project</small>
+        <div class="text-center mt-4 text-muted">
+            <small>HashShield v2.0 &copy; 2026 | Built for Cyber Security Research Project</small>
         </div>
 
     </div>
+
 </body>
 </html>
