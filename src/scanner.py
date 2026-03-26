@@ -580,7 +580,7 @@ def generate_chart_base64(dist_data):
         return None
 
 def generate_html_report(results, output_path, scan_duration=0):
-    """Laporan versi Executive Hub: Menggabungkan metrik performa dan distribusi."""
+    """Laporan versi Executive Hub dengan klasifikasi Threat Severity (Final Polish)."""
     if not HAS_REPORTING: return
     
     try:
@@ -593,36 +593,61 @@ def generate_html_report(results, output_path, scan_duration=0):
         infected_count = len(infected_results)
         clean_count = total_files - infected_count
         
-        # 2. Metrik Performa (Data untuk Pak Ivo)
+        # 2. Metrik Performa
         files_per_sec = round(total_files / scan_duration, 2) if scan_duration > 0 else 0
         
-        # 3. Distribusi Ancaman
+        # 3. Persiapan Data Laporan & Distribusi Ancaman
         dist_data = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean_count}
-        for _, _, threat, engine in infected_results:
-            if "Shield Engine" in engine:
-                dist_data["Heuristic" if "Heuristic" in threat else "Hash"] += 1
-            elif "Cloud" in engine:
-                dist_data["Cloud"] += 1
-
-        chart_b64 = generate_chart_base64(dist_data)
-
-        # 4. Render dengan Metadata Lengkap
+        report_data = []
+        
         current_hostname = socket.gethostname()
         try:
             current_ip = socket.gethostbyname(current_hostname)
         except:
             current_ip = "127.0.0.1"
 
-        html_out = template.render(
-            results=[{
-                'status': 'INFECTED' if x[1] else 'CLEAN',
-                'is_infected': x[1],
-                'file': x[0],
+        for file_path, is_infected, threat_name, engine_name in results:
+            # --- LOGIKA SEVERITY (Langkah 2) ---
+            severity = "INFORMATIONAL"
+            severity_badge = "bg-success"
+            
+            if is_infected:
+                if "Shield Engine" in engine_name:
+                    if "Hash" in threat_name:
+                        severity = "CRITICAL"
+                        severity_badge = "bg-danger"
+                    else:
+                        severity = "HIGH"
+                        severity_badge = "bg-warning text-dark"
+                elif "Cloud" in engine_name:
+                    severity = "MEDIUM"
+                    severity_badge = "bg-primary"
+            
+            # Memasukkan ke list data laporan untuk template
+            report_data.append({
+                'status': 'INFECTED' if is_infected else 'CLEAN',
+                'is_infected': is_infected,
+                'file': file_path,
                 'client': current_hostname,
-                'engine': x[3],
-                'threat': x[2],
-                'badge_class': 'bg-danger' if x[1] else 'bg-success'
-            } for x in results],
+                'engine': engine_name,
+                'threat': threat_name,
+                'severity': severity,
+                'severity_badge': severity_badge,
+                'badge_class': 'bg-danger' if is_infected else 'bg-success'
+            })
+            
+            # Update data untuk Chart
+            if is_infected:
+                if "Shield Engine" in engine_name:
+                    dist_data["Heuristic" if "Heuristic" in threat_name else "Hash"] += 1
+                elif "Cloud" in engine_name:
+                    dist_data["Cloud"] += 1
+
+        chart_b64 = generate_chart_base64(dist_data)
+
+        # 4. Render dengan Metadata Lengkap
+        html_out = template.render(
+            results=report_data,
             summary={
                 'total': total_files,
                 'infected': infected_count,
