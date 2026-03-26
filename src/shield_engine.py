@@ -54,15 +54,17 @@ def download_clamav_hashes():
     
     hash_db = {}
     
-    yara_rules_source = ""
-    ndb_total_count = 0
+    # REVISI PAK IVO: Mulai hitung waktu startup
+    start_time = time.time()
     
-    # Chunking trackers
+    # OPTIMASI: Gunakan list buffer, bukan string concatenation (+=)
+    yara_rules_buffer = []
+    ndb_total_count = 0
     current_chunk_count = 0
     current_rule_index = 0
     
-    # Open the first rule
-    yara_rules_source += f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n"
+    # Inisialisasi rule pertama ke buffer
+    yara_rules_buffer.append(f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n")
 
     # 1. CHECK / DOWNLOAD DATA
     if not os.path.exists(local_db_path):
@@ -83,13 +85,14 @@ def download_clamav_hashes():
 
     if data:
         try:
+            # Bypass header ClamAV 512-byte
             tar_data = data[512:] 
-            print("[Shield Engine] Parsing FULL database (This will take time)...")
+            print("[Shield Engine] Parsing FULL database to RAM (Optimized)...")
             
             with tarfile.open(fileobj=io.BytesIO(tar_data), mode='r:gz') as tar:
                 for member in tar.getmembers():
-                    # --- PARSE HASHES ---
-                    if member.name.endswith('.hdb') or member.name.endswith('.hsb'):
+                    # --- PARSE HASHES (.hdb / .hsb) ---
+                    if member.name.endswith(('.hdb', '.hsb')):
                         f = tar.extractfile(member)
                         if f:
                             for line in f:
@@ -99,7 +102,7 @@ def download_clamav_hashes():
                                         hash_db[parts[0]] = parts[2]
                                 except: continue
 
-                    # --- PARSE PATTERNS ---
+                    # --- PARSE PATTERNS (.ndb) ---
                     if member.name.endswith('.ndb'):
                         f = tar.extractfile(member)
                         if f:
@@ -111,21 +114,27 @@ def download_clamav_hashes():
                                         yara_sig = format_clamav_to_yara(raw_sig)
                                         
                                         if yara_sig:
-                                            yara_rules_source += f"    $s_{ndb_total_count} = {{ {yara_sig} }}\n"
+                                            # Pakai append ke list (jauh lebih cepat)
+                                            yara_rules_buffer.append(f"    $s_{ndb_total_count} = {{ {yara_sig} }}\n")
                                             ndb_total_count += 1
                                             current_chunk_count += 1
                                             
                                             if current_chunk_count >= CHUNK_SIZE:
-                                                yara_rules_source += "\ncondition:\n    any of them\n}\n\n"
+                                                yara_rules_buffer.append("\ncondition:\n    any of them\n}\n\n")
                                                 current_rule_index += 1
                                                 current_chunk_count = 0
-                                                yara_rules_source += f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n"
+                                                yara_rules_buffer.append(f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n")
                                 except: continue
         except Exception as e:
             print(f"[Shield Engine] Error parsing DB: {e}")
 
-    # Close the final rule
-    yara_rules_source += "\ncondition:\n    any of them\n}"
+    # Tutup rule terakhir dan gabungkan semua menjadi satu string YARA
+    yara_rules_buffer.append("\ncondition:\n    any of them\n}")
+    yara_rules_source = "".join(yara_rules_buffer)
+    
+    # Hitung durasi konversi
+    end_time = time.time()
+    print(f"[Shield Engine] Dynamic Conversion completed in {end_time - start_time:.2f} seconds.")
     
     # 2. LOAD CUSTOM DBs
     custom_dbs = glob.glob(os.path.join(current_dir, "*.hdb"))

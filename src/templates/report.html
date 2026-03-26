@@ -65,8 +65,9 @@
                     <thead class="table-dark">
                         <tr>
                             <th>Status</th>
+                            <th>Origin/Client</th>
                             <th>File Path</th>
-                            <th>Detection Engine</th>
+                            <th>Engine</th>
                             <th>Threat Name</th>
                         </tr>
                     </thead>
@@ -76,6 +77,7 @@
                             <td class="{{ 'status-infected' if item.is_infected else 'status-clean' }}">
                                 {{ item.status }}
                             </td>
+                            <td><span class="badge bg-secondary">{{ item.client }}</span></td>
                             <td style="word-break: break-all;">{{ item.file }}</td>
                             <td>
                                 <span class="badge {{ item.badge_class }} engine-badge">{{ item.engine }}</span>

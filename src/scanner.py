@@ -266,22 +266,32 @@ def get_all_files_recursively(directory_path, excluded_extensions, scan_archives
     return filepaths, skipped_by_ext_count
 
 def quarantine_file(filepath, reason):
-    """Moves a file to the quarantine directory."""
+    """Memindahkan file ke isolasi dan mencabut izin eksekusi (Revisi Pak Rofiq)."""
     try:
         QUARANTINE_DIR.mkdir(exist_ok=True)
-        logging.debug(f"Attempting to quarantine file: {filepath}")
         original_path = Path(filepath)
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        safe_filename = f"{original_path.name}.{timestamp}.quarantined"
+        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        safe_filename = f"{original_path.name}.{timestamp}.locked"
         destination_path = QUARANTINE_DIR / safe_filename
+        
+        # Pindahkan file ke folder karantina
         shutil.move(filepath, destination_path)
+        
+        # CABUT IZIN EKSEKUSI (Revisi Pak Rofiq)
+        if platform.system() == "Windows":
+            # Deny 'Execute' permission untuk semua user di Windows
+            subprocess.run(['icacls', str(destination_path), '/deny', 'Everyone:(X)'], capture_output=True)
+        else:
+            # Mode Read-Only (no execute) untuk Linux/Kali
+            os.chmod(destination_path, 0o444)
+
         with open(QUARANTINE_LOG, 'a', encoding='utf-8') as log_file:
-            log_entry = f"Timestamp: {datetime.now()}\n  Original: {filepath}\n  Quarantined: {destination_path}\n  Reason: {reason}\n---\n"
+            log_entry = f"[{datetime.now()}] QUARANTINED: {filepath} | Reason: {reason} | Action: No-Execute Applied\n"
             log_file.write(log_entry)
-        logging.debug(f"Successfully quarantined file to: {destination_path}")
+            
         return True
     except Exception as e:
-        logging.error(f"Failed to quarantine file {filepath}: {e}")
+        logging.error(f"Failed to secure quarantine for {filepath}: {e}")
         return False
         
 def delete_file(filepath, reason):
@@ -384,18 +394,27 @@ def scan_file_yara(filepath, yara_rules):
     return False, None
 
 def scan_file_daemon(filepath):
+    """Mengirim data ke Daemon menggunakan format JSON (Revisi Pak Rofiq)."""
     try:
         abs_path = os.path.abspath(filepath)
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-            s.settimeout(1.0)
+            s.settimeout(2.0)
             s.connect(('127.0.0.1', DAEMON_PORT))
-            s.sendall(abs_path.encode())
+            
+            # Buat payload JSON agar Daemon tahu siapa pengirimnya
+            payload = json.dumps({
+                "hostname": socket.gethostname(),
+                "path": abs_path
+            })
+            
+            s.sendall(payload.encode())
             response = s.recv(1024).decode()
+            
             if response.startswith("INFECTED"):
                 parts = response.split(":", 1)
                 return parts[1] if len(parts) > 1 else "Unknown Threat"
-    except ConnectionRefusedError: pass
-    except Exception as e: logging.debug(f"Daemon check failed: {e}")
+    except Exception as e:
+        logging.debug(f"Daemon communication failed: {e}")
     return None
 
 async def upload_file_to_virustotal(filepath, session):
@@ -503,105 +522,116 @@ def generate_chart_base64(total, infected, clean):
     except Exception:
         return None
 
-def generate_report(results, output_path, report_format):
-    """Generates a scan report (TXT, CSV, JSON, HTML)."""
+def generate_chart_base64(dist_data):
+    """Menghasilkan Donut Chart dengan Label Executive (Bab 4 Ready)."""
+    if not HAS_REPORTING: return None
     try:
-        timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        total = len(results)
-        infected = sum(1 for _, is_mal, _ in results if is_mal)
-        clean = total - infected
+        import matplotlib.pyplot as plt
         
-        sys_info = {
-            "OS": f"{platform.system()} {platform.release()}",
-            "User": getpass.getuser(),
-            "Node": platform.node(),
-            "Scan_Time": timestamp
+        # Mapping label teknis ke bahasa eksekutif
+        exec_labels = {
+            "Hash": "Known Malware",
+            "Heuristic": "Suspicious Patterns",
+            "Cloud": "Cloud Verified",
+            "Clean": "Verified Safe"
         }
-
-        if report_format == 'html':
-            if not HAS_REPORTING:
-                print(f"{C_RED}[!] Error: 'jinja2' and 'matplotlib' are required for HTML reports.{C_RESET}")
-                return
-
-            chart_b64 = generate_chart_base64(total, infected, clean)
-            processed_results = []
-            for fp, is_mal, msg in results:
-                badge = "bg-secondary"; engine_name = "Unknown"; threat_name = "None"
-                if is_mal:
-                    if "Shield Engine" in msg: 
-                        badge = "bg-danger"; engine_name = "Local DB"
-                        if "Detected: " in msg: threat_name = msg.split("Detected: ")[-1]
-                    elif "YARA" in msg: 
-                        badge = "bg-warning text-dark"; engine_name = "YARA"
-                        if ": " in msg: threat_name = msg.split(": ")[-1]
-                    elif "VirusTotal" in msg: 
-                        badge = "bg-info text-dark"; engine_name = "Cloud API"; threat_name = "Multi-Vendor Detection"
-                    elif "CONTAINER THREAT" in msg:
-                        badge = "bg-dark border border-danger"; engine_name = "Structure"; threat_name = "Contains Malware"
-                else:
-                    badge = "bg-success"; engine_name = "Safe"; threat_name = "-"
-
-                processed_results.append({
-                    "file": format_display_path(fp), "is_infected": is_mal, "status": "INFECTED" if is_mal else "CLEAN",
-                    "reason": msg, "threat": threat_name, "engine": engine_name, "badge_class": badge
-                })
-
-            env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
-            template = env.get_template("report.html")
-            html_out = template.render(scan_time=timestamp, user=sys_info['User'], system=sys_info['OS'],
-                summary={"total": total, "infected": infected, "clean": clean}, results=processed_results, chart_data=chart_b64)
-            with open(output_path, 'w', encoding='utf-8') as f: f.write(html_out)
-
-        elif report_format == 'json':
-            report_data = { "metadata": { "tool": "HashShield v2.0", **sys_info },
-                "summary": {"total_files": total, "infected": infected, "clean": clean}, "results": [] }
-            for fp, is_mal, msg in results:
-                report_data["results"].append({ "file": format_display_path(fp), "status": "INFECTED" if is_mal else "CLEAN", "reason": msg })
-            with open(output_path, 'w', encoding='utf-8') as f: json.dump(report_data, f, indent=4)
-
-        elif report_format == 'csv':
-            with open(output_path, 'w', newline='', encoding='utf-8') as f:
-                writer = csv.writer(f)
-                writer.writerow(["# HashShield Scan Report", f"Date: {timestamp}", f"User: {sys_info['User']}"])
-                writer.writerow(["Timestamp", "File", "Status", "Reason", "Detection Engine", "Threat Name"])
-                for fp, is_mal, msg in results:
-                    status = "INFECTED" if is_mal else "CLEAN"
-                    engine = "Cloud" if "VirusTotal" in msg else "Local" if "Shield Engine" in msg else "YARA" if "YARA" in msg else "Unknown"
-                    threat = msg.split(": ")[-1] if ":" in msg else "Generic"
-                    writer.writerow([timestamp, format_display_path(fp), status, msg, engine, threat])
-
-        else: # Default TXT
-             with open(output_path, 'w', encoding='utf-8') as f:
-                f.write("="*80 + "\n"); f.write(f"  OFFICIAL SECURITY AUDIT REPORT | v2.0\n"); f.write("="*80 + "\n\n")
-                f.write("[+] SCAN META-INFORMATION\n")
-                f.write(f"    Date       : {sys_info['Scan_Time']}\n"); f.write(f"    System     : {sys_info['OS']}\n"); f.write(f"    Operator   : {sys_info['User']}@{sys_info['Node']}\n"); f.write("-" * 80 + "\n\n")
-                f.write("[+] EXECUTIVE SUMMARY\n")
-                f.write("    +---------------------------------------------+\n")
-                f.write(f"    | Total Files Scanned : {str(total).ljust(21)} |\n")
-                f.write(f"    | Threats Detected    : {str(infected).ljust(21)} |\n")
-                f.write(f"    | Clean Files         : {str(clean).ljust(21)} |\n")
-                f.write("    +---------------------------------------------+\n\n")
-                if infected > 0:
-                    f.write("[!] DETECTED THREATS DETAILED LOG\n"); f.write("="*80 + "\n")
-                    f.write(f"{'FILE':<50} | {'ENGINE':<15} | {'THREAT NAME'}\n"); f.write("-" * 80 + "\n")
-                    for fp, is_mal, msg in results:
-                        if is_mal:
-                            clean_path = format_display_path(fp)
-                            if len(clean_path) > 47: clean_path = "..." + clean_path[-44:]
-                            engine = "UNKNOWN"; threat = "Generic"
-                            if "Shield Engine" in msg: engine = "LOCAL DB"; threat = msg.split(": ")[-1]
-                            elif "YARA" in msg: engine = "YARA"; threat = msg.split(": ")[-1]
-                            elif "VirusTotal" in msg: engine = "CLOUD API"; threat = "Multi-Vendor"
-                            elif "CONTAINER THREAT" in msg: engine = "ARCHIVE"; threat = "Contains Malware"
-                            f.write(f"{clean_path:<50} | {engine:<15} | {threat}\n")
-                    f.write("-" * 80 + "\n\n")
-                f.write("[*] End of Report.\n")
         
-        print(f"{C_GREEN}[+] Report saved successfully to: {output_path}{C_RESET}")
+        labels = [exec_labels[k] for k, v in dist_data.items() if v > 0]
+        sizes = [v for v in dist_data.values() if v > 0]
+        
+        if not sizes: return None
 
+        # Warna: Deep Red (Hash), Orange (Heur), Blue (Cloud), Green (Clean)
+        colors = ['#c0392b', '#e67e22', '#2980b9', '#27ae60']
+        
+        fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
+        
+        # Donut Chart
+        wedges, texts, autotexts = ax.pie(
+            sizes, 
+            labels=labels, 
+            autopct='%1.1f%%', 
+            startangle=140, 
+            colors=colors[:len(labels)], 
+            pctdistance=0.75,
+            explode=[0.03]*len(sizes),
+            wedgeprops={'width': 0.45, 'edgecolor': 'white', 'linewidth': 2}
+        )
+
+        plt.setp(autotexts, size=10, weight="bold", color="white")
+        plt.setp(texts, size=11, weight="bold")
+
+        # Teks Tengah: Business Logic
+        total_inf = dist_data["Hash"] + dist_data["Heuristic"] + dist_data["Cloud"]
+        ax.text(0, 0.15, "SECURITY STATUS", ha='center', fontsize=9, color='#7f8c8d', weight='bold')
+        ax.text(0, -0.1, f"{total_inf}\nTHREATS", ha='center', va='center', fontsize=18, weight='bold', color='#c0392b')
+        ax.text(0, -0.4, "BLOCKED", ha='center', fontsize=10, color='#c0392b', weight='bold')
+
+        plt.axis('equal')
+        
+        img_buf = io.BytesIO()
+        plt.savefig(img_buf, format='png', bbox_inches='tight', transparent=True)
+        img_buf.seek(0)
+        chart_encoded = base64.b64encode(img_buf.read()).decode('utf-8')
+        plt.close(fig)
+        return chart_encoded
+    except Exception as e:
+        print(f"[!] Chart Upgrade Error: {e}")
+        return None
+
+def generate_html_report(results, output_path):
+    """Fungsi utama pembuatan dashboard HTML."""
+    if not HAS_REPORTING: return
+    
+    try:
+        env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
+        template = env.get_template('report.html')
+        
+        dist_data = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": 0}
+        report_data = []
+        
+        for f_path, is_inf, threat, engine in results:
+            if is_inf:
+                # Logika klasifikasi untuk grafik
+                if "Shield Engine" in engine:
+                    dist_data["Heuristic" if "Heuristic" in threat else "Hash"] += 1
+                elif "Cloud" in engine:
+                    dist_data["Cloud"] += 1
+            else:
+                dist_data["Clean"] += 1
+
+            report_data.append({
+                'status': 'INFECTED' if is_inf else 'CLEAN',
+                'is_infected': is_inf,
+                'file': f_path,
+                'client': socket.gethostname(), # Otomatis ambil nama PC yang menjalankan scan
+                'engine': engine,
+                'threat': threat,
+                'badge_class': 'bg-danger' if is_inf else 'bg-success'
+            })
+            
+        # Panggil generator grafik
+        chart_b64 = generate_chart_base64(dist_data)
+
+        html_out = template.render(
+            results=report_data,
+            summary={
+                'total': len(results),
+                'infected': sum(1 for x in results if x[1]),
+                'clean': len(results) - sum(1 for x in results if x[1])
+            },
+            chart_data=chart_b64, 
+            scan_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
+            user=getpass.getuser(),
+            system=platform.system()
+        )
+        
+        with open(output_path, 'w', encoding='utf-8') as f:
+            f.write(html_out)
+        print(f"\n{C_GREEN}[+] Dashboard updated: {output_path}{C_RESET}")
+        
     except Exception as e:
         print(f"{C_RED}[!] Failed to generate report: {e}{C_RESET}")
-
 # =======================================================
 # 5. MAIN EXECUTION
 # =======================================================
@@ -773,13 +803,19 @@ def main():
         print("-" * 40)
         print(f"Scan complete. Found {len(infected_results)} malicious files.")
 
+        # --- REPORTING (Revisi Pak Rofiq & Pak Ivo) ---
         final_report_list = []
-        for fp, msg in infected_results: final_report_list.append((fp, True, msg))
-        for fp, msg in uploaded_results: final_report_list.append((fp, False, msg))
-        for fp in final_clean_results: final_report_list.append((fp, False, "Clean"))
+        for fp, msg in infected_results: 
+            final_report_list.append((fp, True, msg, "Shield Engine")) 
+        for fp, msg in uploaded_results: 
+            final_report_list.append((fp, False, msg, "Cloud Engine")) 
+        for fp in final_clean_results: 
+            final_report_list.append((fp, False, "Clean", "Local Engine")) 
 
-        if args.output:
-            generate_report(final_report_list, args.output, args.format)
+        # Memastikan fungsi yang dipanggil adalah generate_html_report
+        if args.output or args.format == 'html':
+            report_file = args.output if args.output else "report.html"
+            generate_html_report(final_report_list, report_file)
 
     finally:
         if TEMP_SCAN_DIR.exists(): shutil.rmtree(TEMP_SCAN_DIR, ignore_errors=True)
