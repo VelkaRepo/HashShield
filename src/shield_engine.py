@@ -7,9 +7,7 @@ import time
 import yara
 
 # --- CONFIGURATION ---
-NDB_SIGNATURE_LIMIT = 0
-CHUNK_SIZE = 8000 # Safety limit per YARA rule (Max is usually 10k)
-
+CHUNK_SIZE = 8000 
 DB_URL = "https://github.com/VelkaRepo/HashShield/releases/download/v2.0-beta/main.cvd"
 
 def format_clamav_to_yara(hex_string):
@@ -21,101 +19,61 @@ def format_clamav_to_yara(hex_string):
     except:
         return None
 
-def update_database(local_path):
-    print(f"[Shield Engine] Starting update from GitHub Release...")
-    print(f"[Shield Engine] Downloading {DB_URL}...")
-    
-    try:
-        headers = {'User-Agent': 'HashShield/2.0'}
-        with requests.get(DB_URL, stream=True, headers=headers) as r:
-            r.raise_for_status()
-            total_size = int(r.headers.get('content-length', 0))
-            downloaded = 0
-            
-            with open(local_path, 'wb') as f:
-                for chunk in r.iter_content(chunk_size=8192): 
-                    f.write(chunk)
-                    downloaded += len(chunk)
-                    # Optional: Simple progress indicator (prints every 10MB)
-                    if total_size > 0 and downloaded % (1024*1024*10) == 0:
-                        mb_downloaded = downloaded // (1024*1024)
-                        mb_total = total_size // (1024*1024)
-                        print(f"[Shield Engine] Downloading... {mb_downloaded}/{mb_total} MB", end='\r')
-                        
-        print("\n[Shield Engine] Update successful!")
-        return True
-    except Exception as e:
-        print(f"\n[Shield Engine] Update failed: {e}")
-        return False
-
 def download_clamav_hashes():
     current_dir = os.path.dirname(os.path.abspath(__file__))
     local_db_path = os.path.join(current_dir, 'main.cvd')
     
     hash_db = {}
+    ndb_map = {} 
     
-    # REVISI PAK IVO: Mulai hitung waktu startup
-    start_time = time.time()
-    
-    # OPTIMASI: Gunakan list buffer, bukan string concatenation (+=)
+    # --- BARIS KRUSIAL YANG TADI TERLEWAT ---
+    start_time = time.time() 
+    # ----------------------------------------
+
     yara_rules_buffer = []
     ndb_total_count = 0
     current_chunk_count = 0
     current_rule_index = 0
     
-    # Inisialisasi rule pertama ke buffer
-    yara_rules_buffer.append(f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n")
-
-    # 1. CHECK / DOWNLOAD DATA
     if not os.path.exists(local_db_path):
         print("[Shield Engine] Local DB missing. Initializing first download...")
         success = update_database(local_db_path)
         if not success:
-            print("[Shield Engine] CRITICAL: Could not obtain database.")
-            return {}, None
+            return {}, None, {}
 
-    # LOAD THE FILE
-    data = None
-    print(f"[Shield Engine] Found local database: {local_db_path}")
     try:
         with open(local_db_path, 'rb') as f:
             data = f.read()
-    except Exception as e:
-        print(f"[Shield Engine] Error reading local file: {e}")
-
-    if data:
-        try:
-            # Bypass header ClamAV 512-byte
             tar_data = data[512:] 
-            print("[Shield Engine] Parsing FULL database to RAM (Optimized)...")
             
             with tarfile.open(fileobj=io.BytesIO(tar_data), mode='r:gz') as tar:
+                # Mulai Rule Pertama
+                yara_rules_buffer.append(f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n")
+                
                 for member in tar.getmembers():
-                    # --- PARSE HASHES (.hdb / .hsb) ---
                     if member.name.endswith(('.hdb', '.hsb')):
-                        f = tar.extractfile(member)
-                        if f:
-                            for line in f:
+                        f_ext = tar.extractfile(member)
+                        if f_ext:
+                            for line in f_ext:
                                 try:
-                                    parts = line.decode('utf-8').strip().split(':')
+                                    parts = line.decode('latin-1').strip().split(':')
                                     if len(parts) >= 3:
                                         hash_db[parts[0]] = parts[2]
                                 except: continue
 
-                    # --- PARSE PATTERNS (.ndb) ---
                     if member.name.endswith('.ndb'):
-                        f = tar.extractfile(member)
-                        if f:
-                            for line in f:
+                        f_ext = tar.extractfile(member)
+                        if f_ext:
+                            for line in f_ext:
                                 try:
-                                    parts = line.decode('utf-8').strip().split(':')
+                                    parts = line.decode('latin-1').strip().split(':')
                                     if len(parts) >= 4:
-                                        raw_sig = parts[3]
-                                        yara_sig = format_clamav_to_yara(raw_sig)
-                                        
+                                        malware_name = parts[0]
+                                        yara_sig = format_clamav_to_yara(parts[3])
                                         if yara_sig:
-                                            # Pakai append ke list (jauh lebih cepat)
-                                            yara_rules_buffer.append(f"    $s_{ndb_total_count} = {{ {yara_sig} }}\n")
+                                            var_id = f"s_{ndb_total_count}"
+                                            ndb_map[var_id] = malware_name
+                                            yara_rules_buffer.append(f"    ${var_id} = {{ {yara_sig} }}\n")
                                             ndb_total_count += 1
                                             current_chunk_count += 1
                                             
@@ -125,37 +83,31 @@ def download_clamav_hashes():
                                                 current_chunk_count = 0
                                                 yara_rules_buffer.append(f"rule ClamAV_NDB_{current_rule_index} {{\nstrings:\n")
                                 except: continue
-        except Exception as e:
-            print(f"[Shield Engine] Error parsing DB: {e}")
+    except Exception as e:
+        print(f"[Shield Engine] Error: {e}")
 
-    # Tutup rule terakhir dan gabungkan semua menjadi satu string YARA
-    yara_rules_buffer.append("\ncondition:\n    any of them\n}")
+    # Finalize Rules
+    if current_chunk_count == 0 and yara_rules_buffer:
+        yara_rules_buffer.pop() 
+    else:
+        yara_rules_buffer.append("\ncondition:\n    any of them\n}")
+
     yara_rules_source = "".join(yara_rules_buffer)
     
-    # Hitung durasi konversi
+    # Hitung Durasi Startup
     end_time = time.time()
-    print(f"[Shield Engine] Dynamic Conversion completed in {end_time - start_time:.2f} seconds.")
+    startup_duration = end_time - start_time
     
-    # 2. LOAD CUSTOM DBs
-    custom_dbs = glob.glob(os.path.join(current_dir, "*.hdb"))
-    for db_file in custom_dbs:
-        try:
-            with open(db_file, 'r') as f:
-                for line in f:
-                    parts = line.strip().split(':')
-                    if len(parts) >= 3:
-                        hash_db[parts[0]] = parts[2]
-        except: pass
-
-    # 3. COMPILE MASSIVE ENGINE
+    # Compile
     compiled_yara = None
     if ndb_total_count > 0:
-        print(f"[Shield Engine] Compiling {ndb_total_count} patterns into RAM...")
+        print(f"[Shield Engine] Parsed {ndb_total_count} patterns in {startup_duration:.2f}s")
         try:
+            c_start = time.time()
             compiled_yara = yara.compile(source=yara_rules_source)
-            print(f"[Shield Engine] HEURISTIC GOD MODE ONLINE. ({ndb_total_count} rules)")
+            print(f"[Shield Engine] Compilation finished in {time.time() - c_start:.2f}s")
         except yara.Error as e:
-            print(f"[Shield Engine] YARA Compilation Failed: {e}")
+            print(f"[Shield Engine] YARA Error: {e}")
     
     print(f"[Shield Engine] Hash Engine Online. Loaded {len(hash_db)} signatures.")
-    return hash_db, compiled_yara
+    return hash_db, compiled_yara, ndb_map
