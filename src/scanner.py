@@ -501,87 +501,16 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
     except Exception as e: return filepath, False, f"Error: {e}"
 
 # =======================================================
-# 4. REPORT GENERATOR (PRO VERSION)
+# 4. REPORT GENERATOR (EXECUTIVE HUB VERSION)
 # =======================================================
-def generate_chart_base64(total, infected, clean):
-    """Generates a Pie Chart in memory and returns Base64 string."""
-    if not HAS_REPORTING: return None
-    try:
-        plt.figure(figsize=(6, 4))
-        labels = ['Infected', 'Clean']
-        sizes = [infected, clean]
-        colors = ['#dc3545', '#198754'] 
-        plt.pie(sizes, labels=labels, colors=colors, autopct='%1.1f%%', startangle=90)
-        plt.axis('equal') 
-        plt.title('Scan Results Distribution')
-        
-        img_buf = io.BytesIO()
-        plt.savefig(img_buf, format='png')
-        img_buf.seek(0)
-        return base64.b64encode(img_buf.read()).decode('utf-8')
-    except Exception:
-        return None
-
-def generate_chart_base64(dist_data):
-    """Menghasilkan Donut Chart dengan Label Executive (Bab 4 Ready)."""
-    if not HAS_REPORTING: return None
-    try:
-        import matplotlib.pyplot as plt
-        
-        # Mapping label teknis ke bahasa eksekutif
-        exec_labels = {
-            "Hash": "Known Malware",
-            "Heuristic": "Suspicious Patterns",
-            "Cloud": "Cloud Verified",
-            "Clean": "Verified Safe"
-        }
-        
-        labels = [exec_labels[k] for k, v in dist_data.items() if v > 0]
-        sizes = [v for v in dist_data.values() if v > 0]
-        
-        if not sizes: return None
-
-        # Warna: Deep Red (Hash), Orange (Heur), Blue (Cloud), Green (Clean)
-        colors = ['#c0392b', '#e67e22', '#2980b9', '#27ae60']
-        
-        fig, ax = plt.subplots(figsize=(8, 6), dpi=100)
-        
-        # Donut Chart
-        wedges, texts, autotexts = ax.pie(
-            sizes, 
-            labels=labels, 
-            autopct='%1.1f%%', 
-            startangle=140, 
-            colors=colors[:len(labels)], 
-            pctdistance=0.75,
-            explode=[0.03]*len(sizes),
-            wedgeprops={'width': 0.45, 'edgecolor': 'white', 'linewidth': 2}
-        )
-
-        plt.setp(autotexts, size=10, weight="bold", color="white")
-        plt.setp(texts, size=11, weight="bold")
-
-        # Teks Tengah: Business Logic
-        total_inf = dist_data["Hash"] + dist_data["Heuristic"] + dist_data["Cloud"]
-        ax.text(0, 0.15, "SECURITY STATUS", ha='center', fontsize=9, color='#7f8c8d', weight='bold')
-        ax.text(0, -0.1, f"{total_inf}\nTHREATS", ha='center', va='center', fontsize=18, weight='bold', color='#c0392b')
-        ax.text(0, -0.4, "BLOCKED", ha='center', fontsize=10, color='#c0392b', weight='bold')
-
-        plt.axis('equal')
-        
-        img_buf = io.BytesIO()
-        plt.savefig(img_buf, format='png', bbox_inches='tight', transparent=True)
-        img_buf.seek(0)
-        chart_encoded = base64.b64encode(img_buf.read()).decode('utf-8')
-        plt.close(fig)
-        return chart_encoded
-    except Exception as e:
-        print(f"[!] Chart Upgrade Error: {e}")
-        return None
 
 def generate_html_report(results, output_path, scan_duration=0):
-    """Laporan versi Executive Hub dengan klasifikasi Threat Severity (Final Polish)."""
-    if not HAS_REPORTING: return
+    """
+    Laporan Executive Hub: Mengintegrasikan Chart.js Interaktif, 
+    Standard Security Severity, dan Audit Search.
+    """
+    if not HAS_REPORTING:
+        return
     
     try:
         env = Environment(loader=FileSystemLoader(str(TEMPLATE_DIR)))
@@ -593,10 +522,11 @@ def generate_html_report(results, output_path, scan_duration=0):
         infected_count = len(infected_results)
         clean_count = total_files - infected_count
         
-        # 2. Metrik Performa
+        # 2. Metrik Performa (Data untuk Pak Ivo)
         files_per_sec = round(total_files / scan_duration, 2) if scan_duration > 0 else 0
         
         # 3. Persiapan Data Laporan & Distribusi Ancaman
+        # Kita menggunakan dictionary mentah untuk dikirim ke Chart.js di sisi HTML
         dist_data = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean_count}
         report_data = []
         
@@ -607,23 +537,24 @@ def generate_html_report(results, output_path, scan_duration=0):
             current_ip = "127.0.0.1"
 
         for file_path, is_infected, threat_name, engine_name in results:
-            # --- LOGIKA SEVERITY (Langkah 2) ---
+            # --- SKEMA WARNA SEVERITY (Standard Security) ---
+            # Default: Safe/Informational
             severity = "INFORMATIONAL"
-            severity_badge = "bg-success"
+            severity_badge = "bg-hs-info text-white" 
             
             if is_infected:
                 if "Shield Engine" in engine_name:
                     if "Hash" in threat_name:
                         severity = "CRITICAL"
-                        severity_badge = "bg-danger"
+                        severity_badge = "bg-hs-critical text-white" # Deep Red
                     else:
                         severity = "HIGH"
-                        severity_badge = "bg-warning text-dark"
+                        severity_badge = "bg-hs-high text-white" # Orange
                 elif "Cloud" in engine_name:
                     severity = "MEDIUM"
-                    severity_badge = "bg-primary"
+                    severity_badge = "bg-hs-medium text-dark" # Yellow/Gold
             
-            # Memasukkan ke list data laporan untuk template
+            # Memasukkan ke list data laporan
             report_data.append({
                 'status': 'INFECTED' if is_infected else 'CLEAN',
                 'is_infected': is_infected,
@@ -632,20 +563,18 @@ def generate_html_report(results, output_path, scan_duration=0):
                 'engine': engine_name,
                 'threat': threat_name,
                 'severity': severity,
-                'severity_badge': severity_badge,
-                'badge_class': 'bg-danger' if is_infected else 'bg-success'
+                'severity_badge': severity_badge
             })
             
-            # Update data untuk Chart
+            # Update data untuk Chart Interaktif
             if is_infected:
                 if "Shield Engine" in engine_name:
                     dist_data["Heuristic" if "Heuristic" in threat_name else "Hash"] += 1
                 elif "Cloud" in engine_name:
                     dist_data["Cloud"] += 1
 
-        chart_b64 = generate_chart_base64(dist_data)
-
-        # 4. Render dengan Metadata Lengkap
+        # 4. Render Template
+        # Kita mengirim 'dist_data' sebagai 'chart_data_json'
         html_out = template.render(
             results=report_data,
             summary={
@@ -657,20 +586,22 @@ def generate_html_report(results, output_path, scan_duration=0):
                 'client': current_hostname,
                 'client_ip': current_ip
             },
-            chart_data=chart_b64,
+            chart_data_json=dist_data, # Data JSON untuk Chart.js
             scan_time=datetime.now().strftime("%Y-%m-%d %H:%M:%S"),
             system_info=f"{platform.system()} {platform.release()}"
         )
         
         with open(output_path, 'w', encoding='utf-8') as f:
             f.write(html_out)
-        print(f"\n{C_GREEN}[+] Executive Dashboard generated: {output_path}{C_RESET}")
+        print(f"\n{colorama.Fore.GREEN}[+] Executive Dashboard generated: {output_path}")
         
     except Exception as e:
-        print(f"{C_RED}[!] Report Error: {e}{C_RESET}")
+        print(f"{colorama.Fore.RED}[!] Report Error: {e}")
+        
 # =======================================================
 # 5. MAIN EXECUTION
 # =======================================================
+
 async def main_async_scanner(filepaths, args):
     scan_cache = load_cache()
     yara_rules = load_yara_rules(source=await fetch_yara_rules_from_url(args.yara_url)) if args.yara_url else load_yara_rules(filepath=YARA_RULES_FILE)
