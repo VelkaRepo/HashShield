@@ -7,52 +7,73 @@
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { 
-            --hs-dark: #1a1c1e; 
-            --hs-gold: #ffc107; 
-            --hs-critical: #c0392b; 
-            --hs-high: #e67e22; 
-            --hs-medium: #f1c40f; 
-            --hs-info: #27ae60; 
+    :root { 
+        --hs-dark: #1a1c1e; --hs-gold: #ffc107; 
+        --hs-critical: #c0392b; --hs-high: #e67e22; 
+        --hs-medium: #f1c40f; --hs-info: #27ae60; 
+    }
+    
+    .bg-hs-critical { background-color: var(--hs-critical) !important; color: white !important; }
+    .bg-hs-high { background-color: var(--hs-high) !important; color: white !important; }
+    .bg-hs-medium { background-color: var(--hs-medium) !important; color: black !important; }
+    .bg-hs-info { background-color: var(--hs-info) !important; color: white !important; }
+
+    body { background-color: #f4f7fa; font-family: 'Segoe UI', system-ui, sans-serif; color: #333; }
+    .hero-section { background: var(--hs-dark); color: white; padding: 40px 0; border-bottom: 5px solid var(--hs-gold); }
+    .status-ribbon { background: #ffffff; padding: 12px 0; font-size: 0.85rem; border-bottom: 1px solid #dee2e6; }
+    .pulse-card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); height: 100%; border: 1px solid rgba(0,0,0,0.03); margin-bottom: 20px; }
+    
+    /* Area Metrik & Hover (Sudah Diperbaiki) */
+    .metric-box { 
+        background: #f8f9fa; 
+        border-radius: 8px; 
+        padding: 15px; 
+        border-left: 4px solid var(--hs-dark); 
+        transition: all 0.3s ease; 
+    }
+
+    .metric-box:hover { 
+        transform: translateY(-5px); 
+        box-shadow: 0 6px 15px rgba(0,0,0,0.1); 
+        background: #ffffff;
+    }
+
+    .metric-value { font-size: 1.4rem; font-weight: 800; color: var(--hs-dark); }
+    .metric-label { font-size: 0.7rem; color: #7f8c8d; text-transform: uppercase; font-weight: bold; }
+    .chart-container { position: relative; height: 350px; width: 100%; }
+
+    /* =======================================================
+       CSS MAGIC FOR PDF EXPORT (PRINT) 
+       ======================================================= */
+    @media print {
+        @page { 
+            size: A4; 
+            margin: 15mm 10mm 15mm 10mm; 
         }
         
-        /* Custom Severity Colors */
-        .bg-hs-critical { background-color: var(--hs-critical) !important; }
-        .bg-hs-high { background-color: var(--hs-high) !important; }
-        .bg-hs-medium { background-color: var(--hs-medium) !important; }
-        .bg-hs-info { background-color: var(--hs-info) !important; }
-
-        body { background-color: #f4f7fa; font-family: 'Segoe UI', system-ui, -apple-system, sans-serif; color: #333; }
+        body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         
-        .hero-section { background: var(--hs-dark); color: white; padding: 40px 0; border-bottom: 5px solid var(--hs-gold); }
-        .status-ribbon { background: #ffffff; padding: 12px 0; font-size: 0.85rem; border-bottom: 1px solid #dee2e6; }
+        .no-print, .btn-export, #tableSearch, .search-container { display: none !important; }
         
-        .pulse-card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); height: 100%; border: 1px solid rgba(0,0,0,0.03); }
+        .container { width: 100% !important; max-width: none !important; padding: 0 !important; margin: 0 !important; }
         
-        /* Metric Hover Effects */
-        .metric-box { background: #f8f9fa; border-radius: 8px; padding: 15px; border-left: 4px solid var(--hs-dark); transition: all 0.3s ease; }
-        .metric-box:hover { transform: translateY(-5px); box-shadow: 0 6px 15px rgba(0,0,0,0.1); background: #ffffff; }
-
-        .metric-value { font-size: 1.4rem; font-weight: 800; color: var(--hs-dark); line-height: 1.2; }
-        .metric-label { font-size: 0.7rem; color: #7f8c8d; text-transform: uppercase; font-weight: bold; letter-spacing: 0.5px; }
-        
-        /* Search & Legend */
-        .search-container { position: relative; max-width: 250px; }
-        .search-container input { padding-left: 35px; border-radius: 20px; border: 1px solid #ced4da; transition: all 0.3s ease; }
-        .search-container input:focus { border-color: var(--hs-gold); box-shadow: 0 0 0 0.25rem rgba(255, 193, 7, 0.15); }
-        .search-icon { position: absolute; left: 12px; top: 50%; transform: translateY(-50%); color: #adb5bd; }
-
-        .table-legend { font-size: 0.75rem; color: #7f8c8d; }
-        .legend-dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; }
-
-        .chart-container { position: relative; height: 350px; width: 100%; }
-
-        @media print {
-            .no-print, #tableSearch, .btn-export { display: none !important; }
-            body { background-color: white; }
-            .pulse-card { box-shadow: none; border: 1px solid #eee; }
+        .pulse-card { 
+            box-shadow: none !important; 
+            border: 1px solid #ddd !important; 
+            break-inside: avoid; 
+            page-break-inside: avoid;
+            margin-bottom: 30px !important;
         }
-    </style>
+
+        .hero-section { padding: 20px 0 !important; border-bottom: 3px solid var(--hs-gold) !important; }
+        
+        .table-responsive { overflow: visible !important; }
+        table { table-layout: fixed; width: 100% !important; font-size: 0.8rem; }
+        td, th { word-wrap: break-word; }
+        
+        .badge { border: 1px solid #ccc !important; }
+    }
+</style>
 </head>
 <body>
 
@@ -122,7 +143,6 @@
                     </div>
                 </div>
                 <div class="search-container">
-                    <span class="search-icon">🔍</span>
                     <input type="text" id="tableSearch" class="form-control form-control-sm" placeholder="Search findings...">
                 </div>
             </div>
