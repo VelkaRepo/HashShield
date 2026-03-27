@@ -13,11 +13,10 @@ from colorama import Fore, Style
 colorama.init(autoreset=True)
 
 # --- CONFIG ---
-DAEMON_HOST  = "192.168.18.6"
-DAEMON_PORT  = 65432
-TIMEOUT      = 10.0
+DEFAULT_HOST  = "192.168.18.6"
+DEFAULT_PORT  = 65432
+TIMEOUT       = 10.0
 MAX_FILE_SIZE = 32 * 1024 * 1024
-LOG_FILE     = Path(__file__).resolve().parent / "agent_log.txt"
 
 C_RED    = Fore.RED
 C_GREEN  = Fore.GREEN
@@ -29,9 +28,9 @@ C_BRIGHT = Style.BRIGHT
 
 # --- CONNECTION ---
 
-def check_daemon():
+def check_daemon(host, port):
     try:
-        with socket.create_connection((DAEMON_HOST, DAEMON_PORT), timeout=TIMEOUT):
+        with socket.create_connection((host, port), timeout=TIMEOUT):
             return True
     except OSError:
         return False
@@ -39,7 +38,7 @@ def check_daemon():
 
 # --- SCAN LOGIC ---
 
-def scan_file(filepath):
+def scan_file(filepath, host, port):
     try:
         file_size = os.path.getsize(filepath)
         if file_size > MAX_FILE_SIZE:
@@ -56,7 +55,7 @@ def scan_file(filepath):
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(TIMEOUT)
-            s.connect((DAEMON_HOST, DAEMON_PORT))
+            s.connect((host, port))
             s.sendall(payload.encode())
             s.shutdown(socket.SHUT_WR)
             response = s.recv(1024).decode().strip()
@@ -70,12 +69,12 @@ def scan_file(filepath):
         return False, f"Error: {e}"
 
 
-def scan_directory(directory):
+def scan_directory(directory, host, port):
     results = []
     for item in Path(directory).rglob("*"):
         if not item.is_file():
             continue
-        is_infected, detail = scan_file(str(item))
+        is_infected, detail = scan_file(str(item), host, port)
         results.append((str(item), is_infected, detail))
         _print_live(str(item), is_infected, detail)
     return results
@@ -91,22 +90,22 @@ def _print_live(filepath, is_infected, detail):
         print(f"  {C_GREY}[CLEAN]   {filepath}{C_RESET}")
 
 
-def print_summary(results, duration):
+def print_summary(results, duration, log_path):
     infected = [r for r in results if r[1]]
     print(f"\n{'─' * 55}")
     print(f"  Scanned  : {C_BRIGHT}{len(results)}{C_RESET} files in {duration:.2f}s")
     print(f"  Infected : {C_RED}{C_BRIGHT}{len(infected)}{C_RESET}")
     print(f"  Clean    : {C_GREEN}{C_BRIGHT}{len(results) - len(infected)}{C_RESET}")
     print(f"{'─' * 55}")
-    print(f"  {C_GREY}Log saved → {LOG_FILE}{C_RESET}\n")
+    print(f"  {C_GREY}Log saved → {log_path}{C_RESET}\n")
 
 
-def write_log(results):
-    with open(LOG_FILE, "a", encoding="utf-8") as f:
+def write_log(results, log_path, host, port):
+    with open(log_path, "a", encoding="utf-8") as f:
         f.write(f"\n{'=' * 55}\n")
         f.write(f"Scan Time : {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n")
         f.write(f"Host      : {socket.gethostname()}\n")
-        f.write(f"Daemon    : {DAEMON_HOST}:{DAEMON_PORT}\n")
+        f.write(f"Daemon    : {host}:{port}\n")
         f.write(f"{'=' * 55}\n")
         for filepath, is_infected, detail in results:
             status = "INFECTED" if is_infected else "CLEAN"
@@ -121,13 +120,19 @@ def main():
         formatter_class=argparse.RawTextHelpFormatter
     )
     parser.add_argument("path", metavar="PATH", help="File or directory to scan")
+    parser.add_argument("--server", metavar="IP", default=DEFAULT_HOST, help=f"Daemon IP address (default: {DEFAULT_HOST})")
+    parser.add_argument("--port", metavar="PORT", type=int, default=DEFAULT_PORT, help=f"Daemon port (default: {DEFAULT_PORT})")
     args = parser.parse_args()
 
-    print(f"\n{C_YELLOW}{C_BRIGHT}  HashShield Agent{C_RESET}  "
-          f"{C_GREY}→ {DAEMON_HOST}:{DAEMON_PORT}{C_RESET}\n")
+    host     = args.server
+    port     = args.port
+    log_path = Path.cwd() / "agent_log.txt"
 
-    if not check_daemon():
-        print(f"  {C_RED}[ERROR]{C_RESET} Cannot reach daemon at {DAEMON_HOST}:{DAEMON_PORT}")
+    print(f"\n{C_YELLOW}{C_BRIGHT}  HashShield Agent{C_RESET}  "
+          f"{C_GREY}→ {host}:{port}{C_RESET}\n")
+
+    if not check_daemon(host, port):
+        print(f"  {C_RED}[ERROR]{C_RESET} Cannot reach daemon at {host}:{port}")
         print(f"  {C_GREY}Make sure the daemon is running on the server.{C_RESET}\n")
         return
 
@@ -142,16 +147,16 @@ def main():
     start = time.time()
 
     if target.is_file():
-        is_infected, detail = scan_file(str(target))
+        is_infected, detail = scan_file(str(target), host, port)
         _print_live(str(target), is_infected, detail)
         results = [(str(target), is_infected, detail)]
     else:
-        results = scan_directory(str(target))
+        results = scan_directory(str(target), host, port)
 
     duration = time.time() - start
 
-    print_summary(results, duration)
-    write_log(results)
+    print_summary(results, duration, log_path)
+    write_log(results, log_path, host, port)
 
 
 if __name__ == "__main__":

@@ -22,3 +22,6 @@ hashshield-agent = "agent:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools]
+py-modules = ["agent"]
