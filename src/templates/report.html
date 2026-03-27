@@ -42,6 +42,23 @@
     .metric-label { font-size: 0.7rem; color: #7f8c8d; text-transform: uppercase; font-weight: bold; }
     .chart-container { position: relative; height: 350px; width: 100%; }
 
+    .legend-dot {
+    height: 12px;
+    width: 12px;
+    border-radius: 50%;
+    display: inline-block;
+    margin-right: 6px;
+    vertical-align: middle;
+    border: 1px solid rgba(0,0,0,0.1);
+    }
+
+    .table-legend span {
+    display: flex;
+    align-items: center;
+    font-size: 0.85rem;
+    font-weight: 500;
+    }
+
     /* =======================================================
        CSS MAGIC FOR PDF EXPORT (PRINT) 
        ======================================================= */
@@ -238,33 +255,51 @@
         };
 
         // --- RENDER DOUGHNUT CHART ---
-        const ctx = document.getElementById('threatChart').getContext('2d');
-        new Chart(ctx, {
-            type: 'doughnut',
-            data: {
-                labels: labels,
-                datasets: [{
-                    data: dataValues,
-                    backgroundColor: backgroundColors,
-                    hoverOffset: 8,       // Jarak aman agar tidak "patah"
-                    borderRadius: 6,     // Sudut membulat modern
-                    spacing: 3,          // Jeda antar kepingan
-                    borderWidth: 2,
-                    borderColor: '#ffffff'
-                }]
+const ctx = document.getElementById('threatChart').getContext('2d');
+new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+        labels: labels,
+        datasets: [{
+            data: dataValues,
+            backgroundColor: backgroundColors,
+            hoverOffset: 12,      // Sedikit lebih besar pas di-hover
+            borderRadius: 8,      // Lebih membulat
+            spacing: 4,           // Jarak antar kepingan lebih tegas
+            borderWidth: 2,
+            borderColor: '#ffffff'
+        }]
+    },
+    plugins: [centerTextPlugin],
+    options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        cutout: '72%',
+        // --- ANIMASI DISET BIAR LEBIH SMOOTH ---
+        animation: {
+            duration: 2000,           // 2 detik biar efek menggambarnya jelas
+            easing: 'easeOutQuart',   // Efek melambat di akhir (elegan)
+            animateRotate: true,      // Efek muter saat muncul
+            animateScale: true        // Efek membesar saat muncul
+        },
+        plugins: {
+            legend: { 
+                position: 'bottom', 
+                labels: { 
+                    padding: 20, 
+                    font: { weight: 'bold', size: 12 },
+                    usePointStyle: true // Bikin legenda di chart jadi bulet juga
+                } 
             },
-            plugins: [centerTextPlugin],
-            options: {
-                responsive: true,
-                maintainAspectRatio: false,
-                cutout: '72%',
-                plugins: {
-                    legend: { position: 'bottom', labels: { padding: 20, font: { weight: 'bold' } } },
-                    tooltip: { backgroundColor: 'rgba(26, 28, 30, 0.9)', padding: 12 }
-                },
-                animation: { animateScale: true, animateRotate: true }
+            tooltip: { 
+                backgroundColor: 'rgba(26, 28, 30, 0.9)', 
+                padding: 12,
+                titleFont: { size: 14 },
+                bodyFont: { size: 13 }
             }
-        });
+        }
+    }
+});
     </script>
 </body>
 </html>
