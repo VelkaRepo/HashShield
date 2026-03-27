@@ -16,9 +16,9 @@ dependencies = [
     "yara-python",
 ]
 
-# --- PERUBAHAN DI SINI ---
 [project.scripts]
 hashshield = "scanner:main"
+hashshield-agent = "agent:main"
 
 [tool.setuptools.packages.find]
 where = ["src"]
