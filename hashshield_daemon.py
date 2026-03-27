@@ -27,13 +27,22 @@ except ImportError:
 # --- HELPERS ---
 
 def recv_full(conn):
-    chunks = []
+    conn.settimeout(0.5)
+    buffer = b""
     while True:
-        chunk = conn.recv(65536)
-        if not chunk:
+        try:
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            buffer += chunk
+            try:
+                json.loads(buffer.decode())
+                break
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+        except socket.timeout:
             break
-        chunks.append(chunk)
-    return b"".join(chunks).decode().strip()
+    return buffer.decode().strip()
 
 
 def is_system_protected(filepath):
