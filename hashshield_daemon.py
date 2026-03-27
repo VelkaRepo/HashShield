@@ -27,7 +27,7 @@ except ImportError:
 # --- HELPERS ---
 
 def recv_full(conn):
-    conn.settimeout(0.5)
+    conn.settimeout(0.1)
     buffer = b""
     while True:
         try:
