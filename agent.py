@@ -1,4 +1,5 @@
 import argparse
+import base64
 import json
 import os
 import socket
@@ -12,10 +13,11 @@ from colorama import Fore, Style
 colorama.init(autoreset=True)
 
 # --- CONFIG ---
-DAEMON_HOST = "192.168.18.6"
-DAEMON_PORT = 65432
-TIMEOUT     = 5.0
-LOG_FILE    = Path(__file__).resolve().parent / "agent_log.txt"
+DAEMON_HOST  = "192.168.18.6"
+DAEMON_PORT  = 65432
+TIMEOUT      = 10.0
+MAX_FILE_SIZE = 32 * 1024 * 1024
+LOG_FILE     = Path(__file__).resolve().parent / "agent_log.txt"
 
 C_RED    = Fore.RED
 C_GREEN  = Fore.GREEN
@@ -39,14 +41,24 @@ def check_daemon():
 
 def scan_file(filepath):
     try:
+        file_size = os.path.getsize(filepath)
+        if file_size > MAX_FILE_SIZE:
+            return False, "Skipped (file exceeds 32MB limit)"
+
+        with open(filepath, "rb") as f:
+            encoded = base64.b64encode(f.read()).decode()
+
         payload = json.dumps({
             "hostname": socket.gethostname(),
-            "path": os.path.abspath(filepath)
+            "path": os.path.abspath(filepath),
+            "content": encoded
         })
+
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(TIMEOUT)
             s.connect((DAEMON_HOST, DAEMON_PORT))
             s.sendall(payload.encode())
+            s.shutdown(socket.SHUT_WR)
             response = s.recv(1024).decode().strip()
 
         if response.startswith("INFECTED"):
