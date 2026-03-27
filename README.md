@@ -64,7 +64,7 @@ graph LR
 
 1.  **Clone & Setup Environment**
      ```bash
-     git clone [https://github.com/VelkaRepo/HashShield.git](https://github.com/VelkaRepo/HashShield.git)
+     git clone https://github.com/VelkaRepo/HashShield.git
      cd HashShield
      
      # Linux / Mac
