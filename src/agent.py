@@ -48,7 +48,7 @@ def scan_file(filepath, host, port, token):
     try:
         file_size = os.path.getsize(filepath)
         if file_size > MAX_FILE_SIZE:
-            return False, "Skipped (file exceeds 32MB limit)"
+            return False, "Skipped (file exceeds 32MB limit)", None
 
         with open(filepath, "rb") as f:
             encoded = base64.b64encode(f.read()).decode()
@@ -68,14 +68,16 @@ def scan_file(filepath, host, port, token):
             response = s.recv(1024).decode().strip()
 
         if response == "UNAUTHORIZED":
-            return False, "Error: Invalid token — check .env SHIELD_AUTH_TOKEN"
+            return False, "Error: Invalid token — check .env SHIELD_AUTH_TOKEN", None
         if response.startswith("INFECTED"):
-            threat = response.split(":", 1)[1] if ":" in response else "Unknown Threat"
-            return True, threat
-        return False, "Clean"
+            parts       = response.split(":", 2)
+            engine_type = parts[1] if len(parts) > 2 else "YARA"
+            threat      = parts[2] if len(parts) > 2 else parts[1] if len(parts) > 1 else "Unknown Threat"
+            return True, threat, engine_type
+        return False, "Clean", None
 
     except Exception as e:
-        return False, f"Error: {e}"
+        return False, f"Error: {e}", None
 
 
 def scan_directory(directory, host, port, token):
@@ -83,8 +85,8 @@ def scan_directory(directory, host, port, token):
     for item in Path(directory).rglob("*"):
         if not item.is_file():
             continue
-        is_infected, detail = scan_file(str(item), host, port, token)
-        results.append((str(item), is_infected, detail))
+        is_infected, detail, engine_type = scan_file(str(item), host, port, token)
+        results.append((str(item), is_infected, detail, engine_type))
         _print_live(str(item), is_infected, detail)
     return results
 
@@ -109,11 +111,12 @@ def request_report(results, fmt, host, port, token, scan_duration):
             "scan_duration": round(scan_duration, 2),
             "results": [
                 {
-                    "file":     fp,
-                    "infected": infected,
-                    "detail":   detail
+                    "file":        fp,
+                    "infected":    infected,
+                    "detail":      detail,
+                    "engine_type": engine_type or ""
                 }
-                for fp, infected, detail in results
+                for fp, infected, detail, engine_type in results
             ]
         })
 
@@ -163,7 +166,7 @@ def write_log(results, log_path, host, port):
         f.write(f"Host      : {socket.gethostname()}\n")
         f.write(f"Daemon    : {host}:{port}\n")
         f.write(f"{'=' * 55}\n")
-        for filepath, is_infected, detail in results:
+        for filepath, is_infected, detail, _ in results:
             status = "INFECTED" if is_infected else "CLEAN"
             f.write(f"[{status}] {filepath} | {detail}\n")
 
@@ -180,7 +183,9 @@ def main():
     parser.add_argument("--port",    metavar="PORT",   type=int, default=DEFAULT_PORT, help=f"Daemon port (default: {DEFAULT_PORT})")
     parser.add_argument("--token",   metavar="TOKEN",  default=DEFAULT_TOKEN, help="Auth token (overrides .env)")
     parser.add_argument("-o",        metavar="FILE",   dest="output", default=None, help="Save report to file")
-    parser.add_argument("--format",  metavar="FORMAT", dest="fmt", choices=["html", "txt", "csv", "json"], default="html", help="Report format (default: html)")
+    parser.add_argument("--format",  metavar="FORMAT", dest="fmt",
+                        choices=["html", "txt", "csv", "json"], default="html",
+                        help="Report format (default: html)")
     args = parser.parse_args()
 
     host     = args.server
@@ -207,9 +212,9 @@ def main():
     start = time.time()
 
     if target.is_file():
-        is_infected, detail = scan_file(str(target), host, port, token)
+        is_infected, detail, engine_type = scan_file(str(target), host, port, token)
         _print_live(str(target), is_infected, detail)
-        results = [(str(target), is_infected, detail)]
+        results = [(str(target), is_infected, detail, engine_type)]
     else:
         results = scan_directory(str(target), host, port, token)
 

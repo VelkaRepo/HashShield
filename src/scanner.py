@@ -402,19 +402,21 @@ def scan_file_daemon(filepath):
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(2.0)
             s.connect(('127.0.0.1', DAEMON_PORT))
-            
+ 
             payload = json.dumps({
                 "token":    os.environ.get("SHIELD_AUTH_TOKEN", ""),
                 "hostname": socket.gethostname(),
-                "path": abs_path
+                "path":     abs_path
             })
-            
+ 
             s.sendall(payload.encode())
             response = s.recv(1024).decode()
-            
+ 
             if response.startswith("INFECTED"):
-                parts = response.split(":", 1)
-                return parts[1] if len(parts) > 1 else "Unknown Threat"
+                parts = response.split(":", 2)
+                # New format: INFECTED:ENGINE:threatname
+                # Old format: INFECTED:threatname (fallback)
+                return parts[2] if len(parts) > 2 else parts[1] if len(parts) > 1 else "Unknown Threat"
     except Exception as e:
         logging.debug(f"Daemon communication failed: {e}")
     return None

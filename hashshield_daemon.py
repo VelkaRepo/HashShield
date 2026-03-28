@@ -11,8 +11,8 @@ from datetime import datetime
 from dotenv import load_dotenv
 
 # --- CONFIGURATION ---
-current_dir = os.path.dirname(os.path.abspath(__file__))
-env_path    = os.path.join(current_dir, 'src', '.env')
+current_dir  = os.path.dirname(os.path.abspath(__file__))
+env_path     = os.path.join(current_dir, 'src', '.env')
 load_dotenv(env_path)
 DAEMON_PORT  = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
 AUTH_TOKEN   = os.getenv("SHIELD_AUTH_TOKEN", "")
@@ -30,27 +30,8 @@ except ImportError:
 
 # --- HELPERS ---
 
-def recv_full(conn):
-    conn.settimeout(0.1)
-    buffer = b""
-    while True:
-        try:
-            chunk = conn.recv(65536)
-            if not chunk:
-                break
-            buffer += chunk
-            try:
-                json.loads(buffer.decode())
-                break
-            except (json.JSONDecodeError, UnicodeDecodeError):
-                continue
-        except socket.timeout:
-            break
-    return buffer.decode().strip()
-
-
-def recv_full_large(conn):
-    conn.settimeout(2.0)
+def recv_full(conn, timeout=0.1):
+    conn.settimeout(timeout)
     buffer = b""
     while True:
         try:
@@ -100,9 +81,9 @@ def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
         file_sha256 = sha256_hasher.hexdigest()
 
         if file_md5 in hash_db:
-            return hash_db[file_md5]
+            return hash_db[file_md5], "HASH"
         if file_sha256 in hash_db:
-            return hash_db[file_sha256]
+            return hash_db[file_sha256], "HASH"
 
         if yara_engine:
             matches = yara_engine.match(filepath)
@@ -116,9 +97,9 @@ def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
 
                     var_id           = var_name_with_sigil.replace('$', '')
                     real_threat_name = ndb_map.get(var_id, match.rule)
-                    return real_threat_name
+                    return real_threat_name, "YARA"
 
-                return str(match.rule)
+                return str(match.rule), "YARA"
 
     except Exception as e:
         print(f"[!] Engine Error while scanning {filepath}: {e}")
@@ -172,28 +153,36 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
     try:
         from jinja2 import Environment, FileSystemLoader
 
-        report_data  = []
-        dist_data    = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean}
+        dist_data   = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean}
+        report_data = []
 
-        for r in results:
+        sorted_results = sorted(results, key=lambda r: not r["infected"])
+
+        for r in sorted_results:
             is_infected  = r["infected"]
             threat       = r["detail"]
-            engine_name  = "Shield Engine" if is_infected else "Local Engine"
+            engine_type  = r.get("engine_type", "YARA")
+            engine_label = "Shield Engine" if is_infected else "Local Engine"
 
             severity       = "INFORMATIONAL"
             severity_badge = "bg-hs-info text-white"
 
             if is_infected:
-                severity       = "HIGH"
-                severity_badge = "bg-hs-high text-white"
-                dist_data["Heuristic"] += 1
+                if engine_type == "HASH":
+                    severity       = "CRITICAL"
+                    severity_badge = "bg-hs-critical text-white"
+                    dist_data["Hash"] += 1
+                else:
+                    severity       = "HIGH"
+                    severity_badge = "bg-hs-high text-white"
+                    dist_data["Heuristic"] += 1
 
             report_data.append({
                 "status":         "INFECTED" if is_infected else "CLEAN",
                 "is_infected":    is_infected,
                 "file":           r["file"],
                 "client":         hostname,
-                "engine":         engine_name,
+                "engine":         engine_label,
                 "threat":         threat,
                 "severity":       severity,
                 "severity_badge": severity_badge
@@ -203,8 +192,8 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
         template = env.get_template("report.html")
 
         return template.render(
-            results        = report_data,
-            summary        = {
+            results         = report_data,
+            summary         = {
                 "total":     total,
                 "infected":  infected,
                 "clean":     clean,
@@ -225,11 +214,12 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
 def _generate_json(results, hostname, client_ip, scan_time,
                    total, infected, clean, duration):
     output = {
-        "scan_time":  scan_time,
-        "client":     hostname,
-        "client_ip":  client_ip,
-        "summary":    {"total": total, "infected": infected, "clean": clean, "duration": duration},
-        "results":    results
+        "scan_time": scan_time,
+        "client":    hostname,
+        "client_ip": client_ip,
+        "summary":   {"total": total, "infected": infected,
+                      "clean": clean, "duration": duration},
+        "results":   results
     }
     return json.dumps(output, indent=2)
 
@@ -237,17 +227,18 @@ def _generate_json(results, hostname, client_ip, scan_time,
 def _generate_csv(results, scan_time):
     output = io.StringIO()
     writer = csv.writer(output)
-    writer.writerow(["Scan Time", "File", "Status", "Detail"])
+    writer.writerow(["Scan Time", "File", "Status", "Engine", "Detail"])
     for r in results:
         writer.writerow([scan_time, r["file"],
-                         "INFECTED" if r["infected"] else "CLEAN", r["detail"]])
+                         "INFECTED" if r["infected"] else "CLEAN",
+                         r.get("engine_type", ""), r["detail"]])
     return output.getvalue()
 
 
 def _generate_txt(results, hostname, client_ip, scan_time,
                   total, infected, clean, duration):
     lines = [
-        f"HashShield Agent Report",
+        "HashShield Agent Report",
         f"{'=' * 55}",
         f"Scan Time : {scan_time}",
         f"Client    : {hostname} ({client_ip})",
@@ -256,7 +247,7 @@ def _generate_txt(results, hostname, client_ip, scan_time,
         f"{'=' * 55}",
         ""
     ]
-    for r in results:
+    for r in sorted(results, key=lambda r: not r["infected"]):
         status = "INFECTED" if r["infected"] else "CLEAN"
         lines.append(f"[{status}] {r['file']} | {r['detail']}")
     return "\n".join(lines)
@@ -270,7 +261,7 @@ if __name__ == "__main__":
     if not AUTH_TOKEN:
         print("[WARN] SHIELD_AUTH_TOKEN not set. All connections will be accepted.")
     else:
-        print(f"[*] Token authentication enabled.")
+        print("[*] Token authentication enabled.")
 
     db_hashes, db_heuristics, ndb_map = download_clamav_hashes()
 
@@ -291,9 +282,8 @@ if __name__ == "__main__":
 
     while True:
         try:
-            conn, addr = server.accept()
-
-            raw_payload = recv_full_large(conn)
+            conn, addr  = server.accept()
+            raw_payload = recv_full(conn, timeout=2.0)
 
             if not raw_payload:
                 conn.close()
@@ -331,14 +321,16 @@ if __name__ == "__main__":
 
             print(f"[*] [{client_identity}] Request: {target_path}")
 
+            scan_result = None
             if "content" in data:
-                result = handle_remote_scan(data, db_hashes, db_heuristics, ndb_map)
+                scan_result = handle_remote_scan(data, db_hashes, db_heuristics, ndb_map)
             else:
-                result = scan_file_robust(target_path, db_hashes, db_heuristics, ndb_map)
+                scan_result = scan_file_robust(target_path, db_hashes, db_heuristics, ndb_map)
 
-            if result:
-                print(f"[ALERT] [{client_identity}] Infected: {result}")
-                conn.send(f"INFECTED:{result}".encode())
+            if scan_result:
+                threat_name, engine_type = scan_result
+                print(f"[ALERT] [{client_identity}] Infected: {threat_name} ({engine_type})")
+                conn.send(f"INFECTED:{engine_type}:{threat_name}".encode())
             else:
                 conn.send(b"CLEAN")
 
