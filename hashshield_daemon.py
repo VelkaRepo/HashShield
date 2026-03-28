@@ -1,19 +1,23 @@
 import base64
+import csv
 import hashlib
+import io
 import json
 import os
 import socket
 import sys
 import uuid
+from datetime import datetime
 from dotenv import load_dotenv
 
 # --- CONFIGURATION ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
 env_path    = os.path.join(current_dir, 'src', '.env')
 load_dotenv(env_path)
-DAEMON_PORT = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
-AUTH_TOKEN  = os.getenv("SHIELD_AUTH_TOKEN", "")
-TEMP_DIR    = "/tmp"
+DAEMON_PORT  = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
+AUTH_TOKEN   = os.getenv("SHIELD_AUTH_TOKEN", "")
+TEMP_DIR     = "/tmp"
+TEMPLATE_DIR = os.path.join(current_dir, 'src', 'templates')
 
 WHITELIST_DIRS = ["C:\\Windows\\System32", "C:\\Windows\\SysWOW64"]
 
@@ -45,6 +49,25 @@ def recv_full(conn):
     return buffer.decode().strip()
 
 
+def recv_full_large(conn):
+    conn.settimeout(2.0)
+    buffer = b""
+    while True:
+        try:
+            chunk = conn.recv(65536)
+            if not chunk:
+                break
+            buffer += chunk
+            try:
+                json.loads(buffer.decode())
+                break
+            except (json.JSONDecodeError, UnicodeDecodeError):
+                continue
+        except socket.timeout:
+            break
+    return buffer.decode().strip()
+
+
 def is_authorized(data):
     if not AUTH_TOKEN:
         return True
@@ -54,6 +77,8 @@ def is_authorized(data):
 def is_system_protected(filepath):
     return any(filepath.startswith(path) for path in WHITELIST_DIRS)
 
+
+# --- SCAN ENGINE ---
 
 def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
     if not os.path.exists(filepath):
@@ -113,6 +138,130 @@ def handle_remote_scan(data, hash_db, yara_engine, ndb_map):
             os.remove(tmp_path)
 
 
+# --- REPORT GENERATION ---
+
+def generate_report(data):
+    fmt         = data.get("format", "html")
+    results     = data.get("results", [])
+    hostname    = data.get("hostname", "Unknown")
+    client_ip   = data.get("client_ip", "Unknown")
+    system_info = data.get("system_info", "Unknown")
+    duration    = data.get("scan_duration", 0)
+    scan_time   = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
+    total    = len(results)
+    infected = sum(1 for r in results if r["infected"])
+    clean    = total - infected
+    speed    = round(total / duration, 2) if duration > 0 else 0
+
+    if fmt == "html":
+        return _generate_html(results, hostname, client_ip, system_info,
+                              scan_time, total, infected, clean, duration, speed)
+    elif fmt == "json":
+        return _generate_json(results, hostname, client_ip, scan_time,
+                              total, infected, clean, duration)
+    elif fmt == "csv":
+        return _generate_csv(results, scan_time)
+    else:
+        return _generate_txt(results, hostname, client_ip, scan_time,
+                             total, infected, clean, duration)
+
+
+def _generate_html(results, hostname, client_ip, system_info, scan_time,
+                   total, infected, clean, duration, speed):
+    try:
+        from jinja2 import Environment, FileSystemLoader
+
+        report_data  = []
+        dist_data    = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean}
+
+        for r in results:
+            is_infected  = r["infected"]
+            threat       = r["detail"]
+            engine_name  = "Shield Engine" if is_infected else "Local Engine"
+
+            severity       = "INFORMATIONAL"
+            severity_badge = "bg-hs-info text-white"
+
+            if is_infected:
+                severity       = "HIGH"
+                severity_badge = "bg-hs-high text-white"
+                dist_data["Heuristic"] += 1
+
+            report_data.append({
+                "status":         "INFECTED" if is_infected else "CLEAN",
+                "is_infected":    is_infected,
+                "file":           r["file"],
+                "client":         hostname,
+                "engine":         engine_name,
+                "threat":         threat,
+                "severity":       severity,
+                "severity_badge": severity_badge
+            })
+
+        env      = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
+        template = env.get_template("report.html")
+
+        return template.render(
+            results        = report_data,
+            summary        = {
+                "total":     total,
+                "infected":  infected,
+                "clean":     clean,
+                "duration":  round(duration, 2),
+                "speed":     speed,
+                "client":    hostname,
+                "client_ip": client_ip
+            },
+            chart_data_json = dist_data,
+            scan_time       = scan_time,
+            system_info     = system_info
+        )
+
+    except Exception as e:
+        return f"<html><body><h1>Report Error: {e}</h1></body></html>"
+
+
+def _generate_json(results, hostname, client_ip, scan_time,
+                   total, infected, clean, duration):
+    output = {
+        "scan_time":  scan_time,
+        "client":     hostname,
+        "client_ip":  client_ip,
+        "summary":    {"total": total, "infected": infected, "clean": clean, "duration": duration},
+        "results":    results
+    }
+    return json.dumps(output, indent=2)
+
+
+def _generate_csv(results, scan_time):
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Scan Time", "File", "Status", "Detail"])
+    for r in results:
+        writer.writerow([scan_time, r["file"],
+                         "INFECTED" if r["infected"] else "CLEAN", r["detail"]])
+    return output.getvalue()
+
+
+def _generate_txt(results, hostname, client_ip, scan_time,
+                  total, infected, clean, duration):
+    lines = [
+        f"HashShield Agent Report",
+        f"{'=' * 55}",
+        f"Scan Time : {scan_time}",
+        f"Client    : {hostname} ({client_ip})",
+        f"Scanned   : {total} | Infected: {infected} | Clean: {clean}",
+        f"Duration  : {duration}s",
+        f"{'=' * 55}",
+        ""
+    ]
+    for r in results:
+        status = "INFECTED" if r["infected"] else "CLEAN"
+        lines.append(f"[{status}] {r['file']} | {r['detail']}")
+    return "\n".join(lines)
+
+
 # --- SERVER CORE ---
 
 if __name__ == "__main__":
@@ -143,7 +292,8 @@ if __name__ == "__main__":
     while True:
         try:
             conn, addr = server.accept()
-            raw_payload = recv_full(conn)
+
+            raw_payload = recv_full_large(conn)
 
             if not raw_payload:
                 conn.close()
@@ -161,8 +311,15 @@ if __name__ == "__main__":
                 data        = {}
 
             if not is_authorized(data):
-                print(f"[!] Unauthorized connection from {addr[0]} — token mismatch.")
+                print(f"[!] Unauthorized connection from {addr[0]}.")
                 conn.send(b"UNAUTHORIZED")
+                conn.close()
+                continue
+
+            if data.get("type") == "generate_report":
+                print(f"[*] [{client_identity}] Report request ({data.get('format', 'html')})")
+                content = generate_report(data)
+                conn.sendall(content.encode())
                 conn.close()
                 continue
 

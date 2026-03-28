@@ -2,6 +2,7 @@ import argparse
 import base64
 import json
 import os
+import platform
 import socket
 import time
 from datetime import datetime
@@ -88,6 +89,53 @@ def scan_directory(directory, host, port, token):
     return results
 
 
+# --- REPORTING ---
+
+def request_report(results, fmt, host, port, token, scan_duration):
+    try:
+        hostname = socket.gethostname()
+        try:
+            client_ip = socket.gethostbyname(hostname)
+        except Exception:
+            client_ip = "Unknown"
+
+        payload = json.dumps({
+            "token":         token,
+            "type":          "generate_report",
+            "format":        fmt,
+            "hostname":      hostname,
+            "client_ip":     client_ip,
+            "system_info":   f"{platform.system()} {platform.release()}",
+            "scan_duration": round(scan_duration, 2),
+            "results": [
+                {
+                    "file":     fp,
+                    "infected": infected,
+                    "detail":   detail
+                }
+                for fp, infected, detail in results
+            ]
+        })
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(30.0)
+            s.connect((host, port))
+            s.sendall(payload.encode())
+            s.shutdown(socket.SHUT_WR)
+
+            chunks = []
+            while True:
+                chunk = s.recv(65536)
+                if not chunk:
+                    break
+                chunks.append(chunk)
+
+        return b"".join(chunks).decode()
+
+    except Exception as e:
+        return None
+
+
 # --- OUTPUT ---
 
 def _print_live(filepath, is_infected, detail):
@@ -127,10 +175,12 @@ def main():
         description="HashShield Agent — Remote Scanner Client",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("path",     metavar="PATH", help="File or directory to scan")
-    parser.add_argument("--server", metavar="IP",   default=DEFAULT_HOST,  help=f"Daemon IP (default: {DEFAULT_HOST})")
-    parser.add_argument("--port",   metavar="PORT", type=int, default=DEFAULT_PORT, help=f"Daemon port (default: {DEFAULT_PORT})")
-    parser.add_argument("--token",  metavar="TOKEN", default=DEFAULT_TOKEN, help="Auth token (overrides .env)")
+    parser.add_argument("path",      metavar="PATH",   help="File or directory to scan")
+    parser.add_argument("--server",  metavar="IP",     default=DEFAULT_HOST,  help=f"Daemon IP (default: {DEFAULT_HOST})")
+    parser.add_argument("--port",    metavar="PORT",   type=int, default=DEFAULT_PORT, help=f"Daemon port (default: {DEFAULT_PORT})")
+    parser.add_argument("--token",   metavar="TOKEN",  default=DEFAULT_TOKEN, help="Auth token (overrides .env)")
+    parser.add_argument("-o",        metavar="FILE",   dest="output", default=None, help="Save report to file")
+    parser.add_argument("--format",  metavar="FORMAT", dest="fmt", choices=["html", "txt", "csv", "json"], default="html", help="Report format (default: html)")
     args = parser.parse_args()
 
     host     = args.server
@@ -167,6 +217,17 @@ def main():
 
     print_summary(results, duration, log_path)
     write_log(results, log_path, host, port)
+
+    if args.output:
+        print(f"  {C_YELLOW}[*] Requesting report from daemon...{C_RESET}")
+        content = request_report(results, args.fmt, host, port, token, duration)
+        if content:
+            output_path = Path.cwd() / args.output
+            with open(output_path, "w", encoding="utf-8") as f:
+                f.write(content)
+            print(f"  {C_GREEN}[+] Report saved → {output_path}{C_RESET}\n")
+        else:
+            print(f"  {C_RED}[!] Report generation failed.{C_RESET}\n")
 
 
 if __name__ == "__main__":
