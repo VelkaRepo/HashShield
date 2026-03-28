@@ -60,3 +60,4 @@ temp_scans/
 *.zip
 *.tar.gz
 *.tar
+agent.spec

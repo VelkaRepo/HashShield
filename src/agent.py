@@ -15,7 +15,11 @@ from dotenv import load_dotenv
 colorama.init(autoreset=True)
 
 # --- CONFIG ---
-_base_dir = Path(__file__).resolve().parent
+import sys
+if getattr(sys, 'frozen', False):
+    _base_dir = Path(sys.executable).resolve().parent
+else:
+    _base_dir = Path(__file__).resolve().parent
 load_dotenv(_base_dir / ".env")
 
 DEFAULT_HOST  = os.getenv("SHIELD_SERVER", "192.168.18.6")
