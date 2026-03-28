@@ -1,11 +1,14 @@
 import base64
 import csv
 import hashlib
+import http.server
 import io
 import json
 import os
 import socket
+import socketserver
 import sys
+import threading
 import uuid
 from datetime import datetime
 from dotenv import load_dotenv
@@ -14,10 +17,14 @@ from dotenv import load_dotenv
 current_dir  = os.path.dirname(os.path.abspath(__file__))
 env_path     = os.path.join(current_dir, 'src', '.env')
 load_dotenv(env_path)
-DAEMON_PORT  = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
-AUTH_TOKEN   = os.getenv("SHIELD_AUTH_TOKEN", "")
-TEMP_DIR     = "/tmp"
-TEMPLATE_DIR = os.path.join(current_dir, 'src', 'templates')
+DAEMON_PORT    = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
+AUTH_TOKEN     = os.getenv("SHIELD_AUTH_TOKEN", "")
+TAILSCALE_IP   = os.getenv("SHIELD_TAILSCALE_IP", "")
+LOCAL_IP       = os.getenv("SHIELD_LOCAL_IP", "")
+HTTP_PORT      = int(os.getenv("SHIELD_HTTP_PORT", 8080))
+TEMP_DIR       = "/tmp"
+TEMPLATE_DIR   = os.path.join(current_dir, 'src', 'templates')
+DIST_DIR       = os.path.join(current_dir, 'dist')
 
 WHITELIST_DIRS = ["C:\\Windows\\System32", "C:\\Windows\\SysWOW64"]
 
@@ -28,7 +35,52 @@ except ImportError:
     from shield_engine import download_clamav_hashes
 
 
-# --- HELPERS ---
+# --- NETWORK HELPERS ---
+
+def get_active_ip():
+    if TAILSCALE_IP:
+        try:
+            with socket.create_connection((TAILSCALE_IP, 65432), timeout=1):
+                pass
+        except OSError:
+            pass
+        try:
+            s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+            s.connect((TAILSCALE_IP, 80))
+            bound_ip = s.getsockname()[0]
+            s.close()
+            if bound_ip.startswith("100."):
+                return TAILSCALE_IP
+        except:
+            pass
+    return LOCAL_IP or "127.0.0.1"
+
+
+def start_http_server(active_ip):
+    if not os.path.exists(DIST_DIR):
+        print(f"[WARN] dist/ folder not found. HTTP server not started.")
+        return
+
+    class QuietHandler(http.server.SimpleHTTPRequestHandler):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, directory=DIST_DIR, **kwargs)
+        def log_message(self, format, *args):
+            pass
+
+    try:
+        httpd = socketserver.TCPServer(("0.0.0.0", HTTP_PORT), QuietHandler)
+        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
+        thread.start()
+        print(f"[*] HTTP Server Online. Serving dist/ on port {HTTP_PORT}...")
+        print(f"")
+        print(f"[ENROLL] Run this on your Windows client:")
+        print(f"  curl -o install.bat http://{active_ip}:{HTTP_PORT}/install.bat && .\\install.bat")
+        print(f"")
+    except Exception as e:
+        print(f"[!] HTTP Server Error: {e}")
+
+
+# --- PROTOCOL HELPERS ---
 
 def recv_full(conn, timeout=0.1):
     conn.settimeout(timeout)
@@ -270,6 +322,10 @@ if __name__ == "__main__":
     if not db_hashes:
         print("[CRITICAL] Failed to load database engine.")
         sys.exit(1)
+
+    active_ip = get_active_ip()
+    print(f"[*] Active network interface: {active_ip}")
+    start_http_server(active_ip)
 
     server = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
