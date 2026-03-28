@@ -9,12 +9,17 @@ from pathlib import Path
 
 import colorama
 from colorama import Fore, Style
+from dotenv import load_dotenv
 
 colorama.init(autoreset=True)
 
 # --- CONFIG ---
-DEFAULT_HOST  = "192.168.18.6"
-DEFAULT_PORT  = 65432
+_base_dir = Path(__file__).resolve().parent
+load_dotenv(_base_dir / ".env")
+
+DEFAULT_HOST  = os.getenv("SHIELD_SERVER", "192.168.18.6")
+DEFAULT_PORT  = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
+DEFAULT_TOKEN = os.getenv("SHIELD_AUTH_TOKEN", "")
 TIMEOUT       = 10.0
 MAX_FILE_SIZE = 32 * 1024 * 1024
 
@@ -38,7 +43,7 @@ def check_daemon(host, port):
 
 # --- SCAN LOGIC ---
 
-def scan_file(filepath, host, port):
+def scan_file(filepath, host, port, token):
     try:
         file_size = os.path.getsize(filepath)
         if file_size > MAX_FILE_SIZE:
@@ -48,9 +53,10 @@ def scan_file(filepath, host, port):
             encoded = base64.b64encode(f.read()).decode()
 
         payload = json.dumps({
+            "token":    token,
             "hostname": socket.gethostname(),
-            "path": os.path.abspath(filepath),
-            "content": encoded
+            "path":     os.path.abspath(filepath),
+            "content":  encoded
         })
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -60,6 +66,8 @@ def scan_file(filepath, host, port):
             s.shutdown(socket.SHUT_WR)
             response = s.recv(1024).decode().strip()
 
+        if response == "UNAUTHORIZED":
+            return False, "Error: Invalid token — check .env SHIELD_AUTH_TOKEN"
         if response.startswith("INFECTED"):
             threat = response.split(":", 1)[1] if ":" in response else "Unknown Threat"
             return True, threat
@@ -69,12 +77,12 @@ def scan_file(filepath, host, port):
         return False, f"Error: {e}"
 
 
-def scan_directory(directory, host, port):
+def scan_directory(directory, host, port, token):
     results = []
     for item in Path(directory).rglob("*"):
         if not item.is_file():
             continue
-        is_infected, detail = scan_file(str(item), host, port)
+        is_infected, detail = scan_file(str(item), host, port, token)
         results.append((str(item), is_infected, detail))
         _print_live(str(item), is_infected, detail)
     return results
@@ -119,13 +127,15 @@ def main():
         description="HashShield Agent — Remote Scanner Client",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("path", metavar="PATH", help="File or directory to scan")
-    parser.add_argument("--server", metavar="IP", default=DEFAULT_HOST, help=f"Daemon IP address (default: {DEFAULT_HOST})")
-    parser.add_argument("--port", metavar="PORT", type=int, default=DEFAULT_PORT, help=f"Daemon port (default: {DEFAULT_PORT})")
+    parser.add_argument("path",     metavar="PATH", help="File or directory to scan")
+    parser.add_argument("--server", metavar="IP",   default=DEFAULT_HOST,  help=f"Daemon IP (default: {DEFAULT_HOST})")
+    parser.add_argument("--port",   metavar="PORT", type=int, default=DEFAULT_PORT, help=f"Daemon port (default: {DEFAULT_PORT})")
+    parser.add_argument("--token",  metavar="TOKEN", default=DEFAULT_TOKEN, help="Auth token (overrides .env)")
     args = parser.parse_args()
 
     host     = args.server
     port     = args.port
+    token    = args.token
     log_path = Path.cwd() / "agent_log.txt"
 
     print(f"\n{C_YELLOW}{C_BRIGHT}  HashShield Agent{C_RESET}  "
@@ -147,11 +157,11 @@ def main():
     start = time.time()
 
     if target.is_file():
-        is_infected, detail = scan_file(str(target), host, port)
+        is_infected, detail = scan_file(str(target), host, port, token)
         _print_live(str(target), is_infected, detail)
         results = [(str(target), is_infected, detail)]
     else:
-        results = scan_directory(str(target), host, port)
+        results = scan_directory(str(target), host, port, token)
 
     duration = time.time() - start
 

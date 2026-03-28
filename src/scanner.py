@@ -342,12 +342,14 @@ def ensure_daemon_running():
     return False
 
 def get_daemon_stats():
-    """Queries the daemon for loaded database statistics."""
     try:
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
             s.settimeout(0.5) # Fast timeout
             s.connect(('127.0.0.1', DAEMON_PORT))
-            s.sendall(b"STATS")
+            s.sendall(json.dumps({
+                "token": os.environ.get("SHIELD_AUTH_TOKEN", ""),
+                "path":  "STATS"
+            }).encode())
             response = s.recv(1024).decode()
             
             if response.startswith("STATS:"):
@@ -401,8 +403,8 @@ def scan_file_daemon(filepath):
             s.settimeout(2.0)
             s.connect(('127.0.0.1', DAEMON_PORT))
             
-            # Buat payload JSON agar Daemon tahu siapa pengirimnya
             payload = json.dumps({
+                "token":    os.environ.get("SHIELD_AUTH_TOKEN", ""),
                 "hostname": socket.gethostname(),
                 "path": abs_path
             })

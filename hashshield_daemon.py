@@ -4,15 +4,15 @@ import json
 import os
 import socket
 import sys
-import time
 import uuid
 from dotenv import load_dotenv
 
 # --- CONFIGURATION ---
 current_dir = os.path.dirname(os.path.abspath(__file__))
-env_path = os.path.join(current_dir, 'src', '.env')
+env_path    = os.path.join(current_dir, 'src', '.env')
 load_dotenv(env_path)
 DAEMON_PORT = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
+AUTH_TOKEN  = os.getenv("SHIELD_AUTH_TOKEN", "")
 TEMP_DIR    = "/tmp"
 
 WHITELIST_DIRS = ["C:\\Windows\\System32", "C:\\Windows\\SysWOW64"]
@@ -43,6 +43,12 @@ def recv_full(conn):
         except socket.timeout:
             break
     return buffer.decode().strip()
+
+
+def is_authorized(data):
+    if not AUTH_TOKEN:
+        return True
+    return data.get("token", "") == AUTH_TOKEN
 
 
 def is_system_protected(filepath):
@@ -83,7 +89,7 @@ def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
                     except AttributeError:
                         var_name_with_sigil = match.strings[0][1]
 
-                    var_id          = var_name_with_sigil.replace('$', '')
+                    var_id           = var_name_with_sigil.replace('$', '')
                     real_threat_name = ndb_map.get(var_id, match.rule)
                     return real_threat_name
 
@@ -111,6 +117,11 @@ def handle_remote_scan(data, hash_db, yara_engine, ndb_map):
 
 if __name__ == "__main__":
     print("--- HashShield Daemon v2.0 (Hybrid Engine) ---")
+
+    if not AUTH_TOKEN:
+        print("[WARN] SHIELD_AUTH_TOKEN not set. All connections will be accepted.")
+    else:
+        print(f"[*] Token authentication enabled.")
 
     db_hashes, db_heuristics, ndb_map = download_clamav_hashes()
 
@@ -148,6 +159,12 @@ if __name__ == "__main__":
             except json.JSONDecodeError:
                 target_path = raw_payload
                 data        = {}
+
+            if not is_authorized(data):
+                print(f"[!] Unauthorized connection from {addr[0]} — token mismatch.")
+                conn.send(b"UNAUTHORIZED")
+                conn.close()
+                continue
 
             if target_path == "STATS":
                 stats = f"STATS:{len(db_hashes)}:{'Active' if db_heuristics else 'Inactive'}"
