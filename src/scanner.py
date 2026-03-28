@@ -540,42 +540,49 @@ def generate_html_report(results, output_path, scan_duration=0):
         except:
             current_ip = "127.0.0.1"
 
+        SEVERITY_WEIGHT = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFORMATIONAL": 3}
+ 
         for file_path, is_infected, threat_name, engine_name in results:
-            # --- SKEMA WARNA SEVERITY (Standard Security) ---
-            # Default: Safe/Informational
-            severity = "INFORMATIONAL"
-            severity_badge = "bg-hs-info text-white" 
-            
+            severity       = "INFORMATIONAL"
+            severity_badge = "bg-hs-info text-white"
+ 
+            clean_threat = threat_name
+            for prefix in [
+                "DANGER! Shield Engine Detected: ",
+                "DANGER! Locally detected by YARA rule: ",
+                "DANGER! "
+            ]:
+                if clean_threat.startswith(prefix):
+                    clean_threat = clean_threat[len(prefix):]
+                    break
+ 
             if is_infected:
                 if "Shield Engine" in engine_name:
-                    if "Hash" in threat_name:
-                        severity = "CRITICAL"
-                        severity_badge = "bg-hs-critical text-white" # Deep Red
-                    else:
-                        severity = "HIGH"
-                        severity_badge = "bg-hs-high text-white" # Orange
+                    severity       = "CRITICAL"
+                    severity_badge = "bg-hs-critical text-white"
+                    dist_data["Hash"] += 1
+                elif "YARA" in engine_name or "Local" in engine_name:
+                    severity       = "HIGH"
+                    severity_badge = "bg-hs-high text-white"
+                    dist_data["Heuristic"] += 1
                 elif "Cloud" in engine_name:
-                    severity = "MEDIUM"
-                    severity_badge = "bg-hs-medium text-dark" # Yellow/Gold
-            
-            # Memasukkan ke list data laporan
-            report_data.append({
-                'status': 'INFECTED' if is_infected else 'CLEAN',
-                'is_infected': is_infected,
-                'file': file_path,
-                'client': current_hostname,
-                'engine': engine_name,
-                'threat': threat_name,
-                'severity': severity,
-                'severity_badge': severity_badge
-            })
-            
-            # Update data untuk Chart Interaktif
-            if is_infected:
-                if "Shield Engine" in engine_name:
-                    dist_data["Heuristic" if "Heuristic" in threat_name else "Hash"] += 1
-                elif "Cloud" in engine_name:
+                    severity       = "MEDIUM"
+                    severity_badge = "bg-hs-medium text-dark"
                     dist_data["Cloud"] += 1
+ 
+            report_data.append({
+                'status':         'INFECTED' if is_infected else 'CLEAN',
+                'is_infected':    is_infected,
+                'file':           file_path,
+                'client':         current_hostname,
+                'engine':         engine_name,
+                'threat':         clean_threat,
+                'severity':       severity,
+                'severity_badge': severity_badge,
+                '_weight':        SEVERITY_WEIGHT.get(severity, 3)
+            })
+ 
+        report_data.sort(key=lambda x: x['_weight'])
 
         # 4. Render Template
         # Kita mengirim 'dist_data' sebagai 'chart_data_json'

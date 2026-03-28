@@ -153,12 +153,11 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
     try:
         from jinja2 import Environment, FileSystemLoader
 
-        dist_data   = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean}
-        report_data = []
+        SEVERITY_WEIGHT = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFORMATIONAL": 3}
+        dist_data       = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean}
+        report_data     = []
 
-        sorted_results = sorted(results, key=lambda r: not r["infected"])
-
-        for r in sorted_results:
+        for r in results:
             is_infected  = r["infected"]
             threat       = r["detail"]
             engine_type  = r.get("engine_type", "YARA")
@@ -185,8 +184,11 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
                 "engine":         engine_label,
                 "threat":         threat,
                 "severity":       severity,
-                "severity_badge": severity_badge
+                "severity_badge": severity_badge,
+                "_weight":        SEVERITY_WEIGHT.get(severity, 3)
             })
+
+        report_data.sort(key=lambda x: x["_weight"])
 
         env      = Environment(loader=FileSystemLoader(TEMPLATE_DIR))
         template = env.get_template("report.html")
