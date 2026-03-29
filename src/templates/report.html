@@ -10,20 +10,22 @@
     :root { 
         --hs-dark: #1a1c1e; --hs-gold: #ffc107; 
         --hs-critical: #c0392b; --hs-high: #e67e22; 
-        --hs-medium: #f1c40f; --hs-info: #27ae60; 
+        --hs-medium: #f1c40f; --hs-info: #27ae60;
+        --hs-remediated: #8e44ad;
     }
     
-    .bg-hs-critical { background-color: var(--hs-critical) !important; color: white !important; }
-    .bg-hs-high { background-color: var(--hs-high) !important; color: white !important; }
-    .bg-hs-medium { background-color: var(--hs-medium) !important; color: black !important; }
-    .bg-hs-info { background-color: var(--hs-info) !important; color: white !important; }
+    .bg-hs-critical    { background-color: var(--hs-critical)   !important; color: white !important; }
+    .bg-hs-high        { background-color: var(--hs-high)       !important; color: white !important; }
+    .bg-hs-medium      { background-color: var(--hs-medium)     !important; color: black !important; }
+    .bg-hs-info        { background-color: var(--hs-info)       !important; color: white !important; }
+    .bg-hs-remediated  { background-color: var(--hs-remediated) !important; color: white !important; }
+    .bg-hs-deleted     { background-color: #2c3e50              !important; color: white !important; }
 
     body { background-color: #f4f7fa; font-family: 'Segoe UI', system-ui, sans-serif; color: #333; }
     .hero-section { background: var(--hs-dark); color: white; padding: 40px 0; border-bottom: 5px solid var(--hs-gold); }
     .status-ribbon { background: #ffffff; padding: 12px 0; font-size: 0.85rem; border-bottom: 1px solid #dee2e6; }
     .pulse-card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); height: 100%; border: 1px solid rgba(0,0,0,0.03); margin-bottom: 20px; }
     
-    /* Area Metrik & Hover (Sudah Diperbaiki) */
     .metric-box { 
         background: #f8f9fa; 
         border-radius: 8px; 
@@ -31,63 +33,56 @@
         border-left: 4px solid var(--hs-dark); 
         transition: all 0.3s ease; 
     }
-
     .metric-box:hover { 
         transform: translateY(-5px); 
         box-shadow: 0 6px 15px rgba(0,0,0,0.1); 
         background: #ffffff;
     }
-
     .metric-value { font-size: 1.4rem; font-weight: 800; color: var(--hs-dark); }
     .metric-label { font-size: 0.7rem; color: #7f8c8d; text-transform: uppercase; font-weight: bold; }
     .chart-container { position: relative; height: 350px; width: 100%; }
 
     .legend-dot {
-    height: 12px;
-    width: 12px;
-    border-radius: 50%;
-    display: inline-block;
-    margin-right: 6px;
-    vertical-align: middle;
-    border: 1px solid rgba(0,0,0,0.1);
+        height: 12px;
+        width: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+        vertical-align: middle;
+        border: 1px solid rgba(0,0,0,0.1);
     }
-
     .table-legend span {
-    display: flex;
-    align-items: center;
-    font-size: 0.85rem;
-    font-weight: 500;
+        display: flex;
+        align-items: center;
+        font-size: 0.85rem;
+        font-weight: 500;
     }
 
-    /* =======================================================
-       CSS MAGIC FOR PDF EXPORT (PRINT) 
-       ======================================================= */
-    @media print {
-        @page { 
-            size: A4; 
-            margin: 15mm 10mm 15mm 10mm; 
-        }
-        
-        body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        
-        .no-print, .btn-export, #tableSearch, .search-container { display: none !important; }
-        
-        .container { width: 100% !important; max-width: none !important; padding: 0 !important; margin: 0 !important; }
-        
-        .pulse-card { 
-            box-shadow: none !important; 
-            border: 1px solid #ddd !important; 
-            break-inside: avoid; 
-            page-break-inside: avoid;
-            margin-bottom: 30px !important;
-        }
+    /* Sortable table headers */
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+    .sortable:hover { background-color: #3d4045 !important; }
+    .sortable::after {
+        content: ' ⇅';
+        font-size: 0.75rem;
+        opacity: 0.6;
+    }
+    .sortable.asc::after  { content: ' ↑'; opacity: 1; }
+    .sortable.desc::after { content: ' ↓'; opacity: 1; }
 
+    @media print {
+        @page { size: A4; margin: 15mm 10mm 15mm 10mm; }
+        body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .no-print, .btn-export, #tableSearch, .search-container { display: none !important; }
+        .container { width: 100% !important; max-width: none !important; padding: 0 !important; margin: 0 !important; }
+        .pulse-card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; page-break-inside: avoid; margin-bottom: 30px !important; }
         .hero-section { padding: 20px 0 !important; border-bottom: 3px solid var(--hs-gold) !important; }
-        
         .table-responsive { overflow: visible !important; }
         table { table-layout: fixed; width: 100% !important; font-size: 0.8rem; }
         td, th { word-wrap: break-word; }
-        
         .badge { border: 1px solid #ccc !important; }
     }
 </style>
@@ -152,10 +147,12 @@
             <div class="d-flex justify-content-between align-items-center mb-4">
                 <div>
                     <h5 class="fw-bold m-0 mb-1">Detailed Forensic Evidence</h5>
-                    <div class="table-legend d-flex gap-3">
+                    <div class="table-legend d-flex gap-3 flex-wrap">
                         <span><span class="legend-dot bg-hs-critical"></span>Critical (Hash)</span>
                         <span><span class="legend-dot bg-hs-high"></span>High (YARA)</span>
                         <span><span class="legend-dot bg-hs-medium"></span>Medium (Cloud)</span>
+                        <span><span class="legend-dot bg-hs-remediated"></span>Quarantined</span>
+                        <span><span class="legend-dot bg-hs-deleted"></span>Deleted</span>
                         <span><span class="legend-dot bg-hs-info"></span>Informational (Clean)</span>
                     </div>
                 </div>
@@ -165,21 +162,21 @@
             </div>
             
             <div class="table-responsive">
-                <table class="table table-hover align-middle border">
+                <table class="table table-hover align-middle border" id="mainTable">
                     <thead class="table-dark">
                         <tr>
-                            <th>Status</th>
-                            <th>Severity</th>
-                            <th>Origin PC</th>
+                            <th class="sortable" data-col="0">Status</th>
+                            <th class="sortable" data-col="1">Severity</th>
+                            <th class="sortable" data-col="2">Origin PC</th>
                             <th>File Path & Name</th>
-                            <th>Engine</th>
+                            <th class="sortable" data-col="4">Engine</th>
                             <th>Threat Identification</th>
                         </tr>
                     </thead>
                     <tbody id="reportTable">
                         {% for item in results %}
                         <tr>
-                            <td><span class="badge {{ 'bg-danger' if item.is_infected else 'bg-success' }} w-100">{{ item.status }}</span></td>
+                            <td><span class="badge {{ 'bg-danger' if item.is_infected and item.status == 'INFECTED' else ('bg-hs-remediated' if item.status == 'QUARANTINED' else ('bg-hs-deleted' if item.status == 'DELETED' else 'bg-success')) }} w-100">{{ item.status }}</span></td>
                             <td><span class="badge {{ item.severity_badge }} w-100" style="font-size: 0.7rem; font-weight: bold;">{{ item.severity }}</span></td>
                             <td><small class="fw-bold text-muted">{{ item.client }}</small></td>
                             <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
@@ -196,7 +193,7 @@
     </div>
 
     <script>
-        // Real-time Search Logic
+        // --- SEARCH ---
         document.getElementById('tableSearch').addEventListener('keyup', function() {
             const val = this.value.toLowerCase();
             document.querySelectorAll('#reportTable tr').forEach(row => {
@@ -204,15 +201,41 @@
             });
         });
 
-        // Data from Python/Jinja2
+        // --- SORTING ---
+        const sortState = {};
+        document.querySelectorAll('.sortable').forEach(th => {
+            th.addEventListener('click', function() {
+                const col     = parseInt(this.dataset.col);
+                const table   = document.getElementById('mainTable');
+                const tbody   = document.getElementById('reportTable');
+                const rows    = Array.from(tbody.querySelectorAll('tr'));
+                const isAsc   = sortState[col] !== 'asc';
+                sortState[col] = isAsc ? 'asc' : 'desc';
+
+                document.querySelectorAll('.sortable').forEach(h => {
+                    h.classList.remove('asc', 'desc');
+                });
+                this.classList.add(isAsc ? 'asc' : 'desc');
+
+                rows.sort((a, b) => {
+                    const aText = a.cells[col]?.innerText.trim().toLowerCase() || '';
+                    const bText = b.cells[col]?.innerText.trim().toLowerCase() || '';
+                    return isAsc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+                });
+
+                rows.forEach(row => tbody.appendChild(row));
+            });
+        });
+
+        // --- CHART DATA ---
         const rawData = {{ chart_data_json | tojson | safe }};
         const totalThreats = rawData.Hash + rawData.Heuristic + rawData.Cloud;
 
         const chartConfig = {
-            "Hash": { label: "Known Malware", color: "#c0392b" },
-            "Heuristic": { label: "Suspicious Patterns", color: "#e67e22" },
-            "Cloud": { label: "Cloud Verification", color: "#f1c40f" },
-            "Clean": { label: "Verified Safe", color: "#27ae60" }
+            "Hash":      { label: "Known Malware",        color: "#c0392b" },
+            "Heuristic": { label: "Suspicious Patterns",  color: "#e67e22" },
+            "Cloud":     { label: "Cloud Verification",   color: "#f1c40f" },
+            "Clean":     { label: "Verified Safe",        color: "#27ae60" }
         };
 
         const labels = [], dataValues = [], backgroundColors = [];
@@ -224,7 +247,6 @@
             }
         }
 
-        // --- REFINED CENTER TEXT PLUGIN ---
         const centerTextPlugin = {
             id: 'centerText',
             afterDraw: function(chart) {
@@ -232,21 +254,16 @@
                 ctx.save();
                 const meta = chart.getDatasetMeta(0);
                 if (!meta.data[0]) return;
-                
                 const centerX = meta.data[0].x;
                 const centerY = meta.data[0].y;
-
                 ctx.textAlign = 'center';
                 ctx.textBaseline = 'middle';
-
                 ctx.font = "bold 11px 'Segoe UI'";
                 ctx.fillStyle = "#7f8c8d";
                 ctx.fillText("SECURITY STATUS", centerX, centerY - 28);
-
                 ctx.font = "bold 28px 'Segoe UI'";
                 ctx.fillStyle = "#c0392b";
                 ctx.fillText(totalThreats + " THREATS", centerX, centerY);
-
                 ctx.font = "bold 14px 'Segoe UI'";
                 ctx.fillStyle = "#c0392b";
                 ctx.fillText("BLOCKED", centerX, centerY + 28);
@@ -254,52 +271,50 @@
             }
         };
 
-        // --- RENDER DOUGHNUT CHART ---
-const ctx = document.getElementById('threatChart').getContext('2d');
-new Chart(ctx, {
-    type: 'doughnut',
-    data: {
-        labels: labels,
-        datasets: [{
-            data: dataValues,
-            backgroundColor: backgroundColors,
-            hoverOffset: 12,      // Sedikit lebih besar pas di-hover
-            borderRadius: 8,      // Lebih membulat
-            spacing: 4,           // Jarak antar kepingan lebih tegas
-            borderWidth: 2,
-            borderColor: '#ffffff'
-        }]
-    },
-    plugins: [centerTextPlugin],
-    options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        cutout: '72%',
-        // --- ANIMASI DISET BIAR LEBIH SMOOTH ---
-        animation: {
-            duration: 2000,           // 2 detik biar efek menggambarnya jelas
-            easing: 'easeOutQuart',   // Efek melambat di akhir (elegan)
-            animateRotate: true,      // Efek muter saat muncul
-            animateScale: true        // Efek membesar saat muncul
-        },
-        plugins: {
-            legend: { 
-                position: 'bottom', 
-                labels: { 
-                    padding: 20, 
-                    font: { weight: 'bold', size: 12 },
-                    usePointStyle: true // Bikin legenda di chart jadi bulet juga
-                } 
+        const ctx = document.getElementById('threatChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: dataValues,
+                    backgroundColor: backgroundColors,
+                    hoverOffset: 12,
+                    borderRadius: 8,
+                    spacing: 4,
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
             },
-            tooltip: { 
-                backgroundColor: 'rgba(26, 28, 30, 0.9)', 
-                padding: 12,
-                titleFont: { size: 14 },
-                bodyFont: { size: 13 }
+            plugins: [centerTextPlugin],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '72%',
+                animation: {
+                    duration: 2000,
+                    easing: 'easeOutQuart',
+                    animateRotate: true,
+                    animateScale: true
+                },
+                plugins: {
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { 
+                            padding: 20, 
+                            font: { weight: 'bold', size: 12 },
+                            usePointStyle: true
+                        } 
+                    },
+                    tooltip: { 
+                        backgroundColor: 'rgba(26, 28, 30, 0.9)', 
+                        padding: 12,
+                        titleFont: { size: 14 },
+                        bodyFont: { size: 13 }
+                    }
+                }
             }
-        }
-    }
-});
+        });
     </script>
 </body>
 </html>

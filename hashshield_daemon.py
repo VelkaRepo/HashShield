@@ -213,12 +213,29 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
             is_infected  = r["infected"]
             threat       = r["detail"]
             engine_type  = r.get("engine_type", "YARA")
+            status       = r.get("status", "INFECTED" if is_infected else "CLEAN")
             engine_label = "Shield Engine" if is_infected else "Local Engine"
 
             severity       = "INFORMATIONAL"
             severity_badge = "bg-hs-info text-white"
 
-            if is_infected:
+            if status == "QUARANTINED":
+                severity       = "REMEDIATED"
+                severity_badge = "bg-hs-remediated text-white"
+                if engine_type == "HASH":
+                    dist_data["Hash"] += 1
+                else:
+                    dist_data["Heuristic"] += 1
+
+            elif status == "DELETED":
+                severity       = "REMEDIATED"
+                severity_badge = "bg-hs-deleted text-white"
+                if engine_type == "HASH":
+                    dist_data["Hash"] += 1
+                else:
+                    dist_data["Heuristic"] += 1
+
+            elif is_infected:
                 if engine_type == "HASH":
                     severity       = "CRITICAL"
                     severity_badge = "bg-hs-critical text-white"
@@ -228,8 +245,10 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
                     severity_badge = "bg-hs-high text-white"
                     dist_data["Heuristic"] += 1
 
+            REMEDIATED_WEIGHT = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "REMEDIATED": 3, "INFORMATIONAL": 4}
+
             report_data.append({
-                "status":         "INFECTED" if is_infected else "CLEAN",
+                "status":         status,
                 "is_infected":    is_infected,
                 "file":           r["file"],
                 "client":         hostname,
@@ -237,7 +256,7 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
                 "threat":         threat,
                 "severity":       severity,
                 "severity_badge": severity_badge,
-                "_weight":        SEVERITY_WEIGHT.get(severity, 3)
+                "_weight":        REMEDIATED_WEIGHT.get(severity, 4)
             })
 
         report_data.sort(key=lambda x: x["_weight"])

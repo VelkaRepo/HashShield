@@ -83,13 +83,12 @@ if not API_KEY:
 # 2. HELPER FUNCTIONS
 # =======================================================
 def print_banner():
-    banner = f"""{C_YELLOW}{C_BRIGHT}
-  _   _           _     _____ _     _      _     _ 
- | | | | __ _ ___| |__ / ____| |__ (_) ___| | __| |
- | |_| |/ _` / __| '_ \\___ \\| '_ \\| |/ _ \\ |/ _` |
- |  _  | (_| \\__ \\ | | |___) | | | | |  __/ | (_| |
- |_| |_|\\__,_|___/_| |_|_____/|_| |_|_|\\___|_|\\__,_|
-                                                     
+    banner = f"""{C_YELLOW}{C_BRIGHT} 
+▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖ ▗▄▄▖▗▖ ▗▖▗▄▄▄▖▗▄▄▄▖▗▖   ▗▄▄▄ 
+▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▌   ▐▌ ▐▌  █  ▐▌   ▐▌   ▐▌  █
+▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌  █  ▐▛▀▀▘▐▌   ▐▌  █
+▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▗▄█▄▖▐▙▄▄▖▐▙▄▄▖▐▙▄▄▀                                                       
+                                               
     {C_RESET}{C_GREY}[ {C_YELLOW}HashShield v2.0{C_GREY} | {C_YELLOW}Hybrid Antivirus Engine{C_GREY} ]{C_RESET}
     {C_GREY}[ {C_YELLOW}Author: Dion{C_GREY}    | {C_YELLOW}Skripsi Project{C_GREY}         ]{C_RESET}
     """
@@ -480,15 +479,13 @@ def generate_html_report(results, output_path, scan_duration=0):
         dist_data = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean_count}
         report_data = []
 
-        SEVERITY_WEIGHT = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFORMATIONAL": 3}
-
         current_hostname = socket.gethostname()
         try:
             current_ip = socket.gethostbyname(current_hostname)
         except:
             current_ip = "127.0.0.1"
 
-        for file_path, is_infected, threat_name, engine_type in results:
+        for file_path, is_infected, threat_name, engine_type, status in results:
             severity       = "INFORMATIONAL"
             severity_badge = "bg-hs-info text-white"
 
@@ -504,7 +501,28 @@ def generate_html_report(results, output_path, scan_duration=0):
                     break
 
             engine_label = "Local Engine"
-            if is_infected:
+            
+            if status == "QUARANTINED":
+                severity       = "REMEDIATED"
+                severity_badge = "bg-hs-remediated text-white"
+                engine_label   = "Shield Engine" if engine_type in ["HASH", "YARA"] else "Cloud Engine"
+                if engine_type == "HASH":
+                    dist_data["Hash"] += 1
+                elif engine_type in ["YARA", "Heuristic"]:
+                    dist_data["Heuristic"] += 1
+                elif engine_type == "Cloud":
+                    dist_data["Cloud"] += 1
+            elif status == "DELETED":
+                severity       = "REMEDIATED"
+                severity_badge = "bg-hs-deleted text-white"
+                engine_label   = "Shield Engine" if engine_type in ["HASH", "YARA"] else "Cloud Engine"
+                if engine_type == "HASH":
+                    dist_data["Hash"] += 1
+                elif engine_type in ["YARA", "Heuristic"]:
+                    dist_data["Heuristic"] += 1
+                elif engine_type == "Cloud":
+                    dist_data["Cloud"] += 1
+            elif is_infected:
                 if engine_type == "HASH":
                     severity       = "CRITICAL"
                     severity_badge = "bg-hs-critical text-white"
@@ -522,7 +540,7 @@ def generate_html_report(results, output_path, scan_duration=0):
                     dist_data["Cloud"] += 1
 
             report_data.append({
-                'status':         'INFECTED' if is_infected else 'CLEAN',
+                'status':         status,
                 'is_infected':    is_infected,
                 'file':           file_path,
                 'client':         current_hostname,
@@ -530,7 +548,7 @@ def generate_html_report(results, output_path, scan_duration=0):
                 'threat':         clean_threat,
                 'severity':       severity,
                 'severity_badge': severity_badge,
-                '_weight':        SEVERITY_WEIGHT.get(severity, 3)
+                '_weight':        {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"REMEDIATED":3,"INFORMATIONAL":4}.get(severity, 4)
             })
 
         report_data.sort(key=lambda x: x['_weight'])
@@ -699,6 +717,7 @@ def main():
         if infected_results:
             print(f"\n{C_YELLOW}--- DETECTED THREATS ({len(infected_results)}) ---{C_RESET}")
             action_all = None
+            remediation_status = {}
             for i, (fp, msg, engine_type) in enumerate(sorted(infected_results)):
                 print("-" * 40)
                 print(f"  FILE    : {format_display_path(fp)}")
@@ -712,11 +731,26 @@ def main():
                         print(f"  {C_YELLOW}[!] Non-interactive mode detected. Defaulting to 'Ignore'.{C_RESET}")
                         action = 'i'
                     else: action = input(f"\n  Action? ({C_YELLOW}Q{C_RESET})uarantine, ({C_RED}D{C_RESET})elete, ({C_GREEN}I{C_RESET})gnore | ({C_YELLOW}A{C_RESET})ll Q, A({C_RED}l{C_RESET})l D, All ({C_GREEN}S{C_RESET})kip? ").lower()
-                    if action == 'q':   quarantine_file(fp, msg)
-                    elif action == 'd': delete_file(fp, msg)
-                    elif action == 'a': action_all = 'q'; quarantine_file(fp, msg)
-                    elif action == 'l': action_all = 'd'; delete_file(fp, msg)
-                    elif action == 's': action_all = 'i'
+                    
+                    if action == 'q':
+                        quarantine_file(fp, msg)
+                        remediation_status[fp] = 'QUARANTINED'
+                    elif action == 'd':
+                        delete_file(fp, msg)
+                        remediation_status[fp] = 'DELETED'
+                    elif action == 'a':
+                        action_all = 'q'
+                        quarantine_file(fp, msg)
+                        remediation_status[fp] = 'QUARANTINED'
+                    elif action == 'l':
+                        action_all = 'd'
+                        delete_file(fp, msg)
+                        remediation_status[fp] = 'DELETED'
+                    elif action == 's':
+                        action_all = 'i'
+                        remediation_status[fp] = 'INFECTED'
+                    else:
+                        remediation_status[fp] = 'INFECTED'
 
         if uploaded_results:
             print(f"\n{C_YELLOW}--- OTHER STATUSES ---{C_RESET}")
@@ -727,11 +761,12 @@ def main():
 
         final_report_list = []
         for fp, msg, engine_type in infected_results:
-            final_report_list.append((fp, True, msg, engine_type))
+            status = remediation_status.get(fp, 'INFECTED')
+            final_report_list.append((fp, True, msg, engine_type, status))
         for fp, msg in uploaded_results:
-            final_report_list.append((fp, False, msg, "Cloud"))
+            final_report_list.append((fp, False, msg, "Cloud", "CLEAN"))
         for fp in final_clean_results:
-            final_report_list.append((fp, False, "Clean", None))
+            final_report_list.append((fp, False, "Clean", None, "CLEAN"))
 
         if args.output or args.format == 'html':
             report_file = args.output if args.output else "report.html"
