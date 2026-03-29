@@ -3,6 +3,7 @@ import base64
 import json
 import os
 import platform
+import shutil
 import socket
 import time
 from datetime import datetime
@@ -93,6 +94,81 @@ def scan_directory(directory, host, port, token):
         results.append((str(item), is_infected, detail, engine_type))
         _print_live(str(item), is_infected, detail)
     return results
+
+
+# --- REMEDIATION ---
+
+def quarantine_file(filepath):
+    try:
+        quarantine_dir = _base_dir / "hashshield-quarantine"
+        quarantine_dir.mkdir(exist_ok=True)
+
+        original      = Path(filepath)
+        timestamp     = datetime.now().strftime("%Y%m%d_%H%M%S")
+        locked_name   = f"{original.name}.{timestamp}.locked"
+        destination   = quarantine_dir / locked_name
+
+        shutil.move(str(original), str(destination))
+
+        if platform.system() == "Windows":
+            os.system(f'icacls "{destination}" /deny Everyone:(X) >nul 2>&1')
+        else:
+            os.chmod(destination, 0o444)
+
+        return True, str(destination)
+    except Exception as e:
+        return False, str(e)
+
+
+def delete_file(filepath):
+    try:
+        os.remove(filepath)
+        return True
+    except Exception as e:
+        return False, str(e)
+
+
+def prompt_remediation(infected_results):
+    if not infected_results:
+        return
+
+    print(f"\n{C_YELLOW}{'─' * 55}")
+    print(f"  INFECTED FILES DETECTED ({len(infected_results)})")
+    print(f"{'─' * 55}{C_RESET}")
+
+    for i, (fp, detail, _) in enumerate(infected_results, 1):
+        print(f"  {C_RED}[{i}]{C_RESET} {fp}")
+        print(f"       {C_YELLOW}→ {detail}{C_RESET}")
+
+    print(f"\n  Action for ALL infected files?")
+    print(f"  ({C_YELLOW}Q{C_RESET})uarantine  ({C_RED}D{C_RESET})elete  ({C_GREEN}S{C_RESET})kip")
+
+    try:
+        action = input(f"\n  Choice: ").strip().lower()
+    except (EOFError, KeyboardInterrupt):
+        print(f"\n  {C_YELLOW}Non-interactive mode. Skipping remediation.{C_RESET}")
+        return
+
+    if action == 'q':
+        print(f"\n  {C_YELLOW}[*] Quarantining infected files...{C_RESET}")
+        for fp, _, _ in infected_results:
+            success, result = quarantine_file(fp)
+            if success:
+                print(f"  {C_GREEN}[+] Quarantined → {result}{C_RESET}")
+            else:
+                print(f"  {C_RED}[!] Failed: {result}{C_RESET}")
+
+    elif action == 'd':
+        print(f"\n  {C_RED}[*] Deleting infected files...{C_RESET}")
+        for fp, _, _ in infected_results:
+            success = delete_file(fp)
+            if success:
+                print(f"  {C_GREEN}[+] Deleted → {fp}{C_RESET}")
+            else:
+                print(f"  {C_RED}[!] Failed to delete: {fp}{C_RESET}")
+
+    else:
+        print(f"\n  {C_GREY}[*] Skipped. No action taken.{C_RESET}")
 
 
 # --- REPORTING ---
@@ -227,8 +303,14 @@ def main():
     print_summary(results, duration, log_path)
     write_log(results, log_path, host, port)
 
+    infected_results = [(fp, detail, engine_type)
+                        for fp, is_infected, detail, engine_type in results
+                        if is_infected]
+    if infected_results:
+        prompt_remediation(infected_results)
+
     if args.output:
-        print(f"  {C_YELLOW}[*] Requesting report from daemon...{C_RESET}")
+        print(f"\n  {C_YELLOW}[*] Requesting report from daemon...{C_RESET}")
         content = request_report(results, args.fmt, host, port, token, duration)
         if content:
             output_path = Path.cwd() / args.output
