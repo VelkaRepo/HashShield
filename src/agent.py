@@ -85,10 +85,21 @@ def scan_file(filepath, host, port, token):
         return False, f"Error: {e}", None
 
 
+EXCLUDED_DIRS = {
+    'AppData', '$Recycle.Bin', 'System Volume Information',
+    'Windows', 'Program Files', 'Program Files (x86)',
+    '__pycache__', '.git'
+}
+
 def scan_directory(directory, host, port, token):
     results = []
     for item in Path(directory).rglob("*"):
-        if not item.is_file():
+        try:
+            if not item.is_file(follow_symlinks=False):
+                continue
+            if any(part in EXCLUDED_DIRS for part in item.parts):
+                continue
+        except (PermissionError, OSError):
             continue
         is_infected, detail, engine_type = scan_file(str(item), host, port, token)
         results.append((str(item), is_infected, detail, engine_type, "INFECTED" if is_infected else "CLEAN"))
