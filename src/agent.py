@@ -5,6 +5,7 @@ import os
 import platform
 import shutil
 import socket
+import sys
 import time
 from datetime import datetime
 from pathlib import Path
@@ -16,7 +17,6 @@ from dotenv import load_dotenv
 colorama.init(autoreset=True)
 
 # --- CONFIG ---
-import sys
 if getattr(sys, 'frozen', False):
     _base_dir = Path(sys.executable).resolve().parent
 else:
@@ -91,7 +91,7 @@ def scan_directory(directory, host, port, token):
         if not item.is_file():
             continue
         is_infected, detail, engine_type = scan_file(str(item), host, port, token)
-        results.append((str(item), is_infected, detail, engine_type))
+        results.append((str(item), is_infected, detail, engine_type, "INFECTED" if is_infected else "CLEAN"))
         _print_live(str(item), is_infected, detail)
     return results
 
@@ -103,10 +103,10 @@ def quarantine_file(filepath):
         quarantine_dir = _base_dir / "hashshield-quarantine"
         quarantine_dir.mkdir(exist_ok=True)
 
-        original      = Path(filepath)
-        timestamp     = datetime.now().strftime("%Y%m%d_%H%M%S")
-        locked_name   = f"{original.name}.{timestamp}.locked"
-        destination   = quarantine_dir / locked_name
+        original    = Path(filepath)
+        timestamp   = datetime.now().strftime("%Y%m%d_%H%M%S")
+        locked_name = f"{original.name}.{timestamp}.locked"
+        destination = quarantine_dir / locked_name
 
         shutil.move(str(original), str(destination))
 
@@ -123,12 +123,37 @@ def quarantine_file(filepath):
 def delete_file(filepath):
     try:
         os.remove(filepath)
-        return True
+        return True, filepath
     except Exception as e:
         return False, str(e)
 
 
-def prompt_remediation(infected_results):
+def _do_quarantine(fp, detail, results):
+    success, result = quarantine_file(fp)
+    if success:
+        print(f"  {C_GREEN}[+] Quarantined → {result}{C_RESET}")
+        _update_result_status(results, fp, f"[QUARANTINED] {detail}", "QUARANTINED")
+    else:
+        print(f"  {C_RED}[!] Failed: {result}{C_RESET}")
+
+
+def _do_delete(fp, detail, results):
+    success, result = delete_file(fp)
+    if success:
+        print(f"  {C_GREEN}[+] Deleted → {fp}{C_RESET}")
+        _update_result_status(results, fp, f"[DELETED] {detail}", "DELETED")
+    else:
+        print(f"  {C_RED}[!] Failed: {result}{C_RESET}")
+
+
+def _update_result_status(results, filepath, new_detail, new_status):
+    for i, entry in enumerate(results):
+        if entry[0] == filepath:
+            results[i] = (entry[0], entry[1], new_detail, entry[3], new_status)
+            break
+
+
+def prompt_remediation(infected_results, results):
     if not infected_results:
         return
 
@@ -137,11 +162,14 @@ def prompt_remediation(infected_results):
     print(f"{'─' * 55}{C_RESET}")
 
     for i, (fp, detail, _) in enumerate(infected_results, 1):
-        print(f"  {C_RED}[{i}]{C_RESET} {fp}")
+        print(f"  {C_RED}[{i}]{C_RESET} {Path(fp).name}")
         print(f"       {C_YELLOW}→ {detail}{C_RESET}")
 
     print(f"\n  Action for ALL infected files?")
-    print(f"  ({C_YELLOW}Q{C_RESET})uarantine  ({C_RED}D{C_RESET})elete  ({C_GREEN}S{C_RESET})kip")
+    print(f"  ({C_YELLOW}Q{C_RESET})uarantine  "
+          f"({C_RED}D{C_RESET})elete  "
+          f"({C_GREEN}S{C_RESET})kip  "
+          f"({C_BRIGHT}R{C_RESET})eview one by one")
 
     try:
         action = input(f"\n  Choice: ").strip().lower()
@@ -150,22 +178,62 @@ def prompt_remediation(infected_results):
         return
 
     if action == 'q':
-        print(f"\n  {C_YELLOW}[*] Quarantining infected files...{C_RESET}")
-        for fp, _, _ in infected_results:
-            success, result = quarantine_file(fp)
-            if success:
-                print(f"  {C_GREEN}[+] Quarantined → {result}{C_RESET}")
-            else:
-                print(f"  {C_RED}[!] Failed: {result}{C_RESET}")
+        print(f"\n  {C_YELLOW}[*] Quarantining all infected files...{C_RESET}")
+        for fp, detail, _ in infected_results:
+            _do_quarantine(fp, detail, results)
 
     elif action == 'd':
-        print(f"\n  {C_RED}[*] Deleting infected files...{C_RESET}")
-        for fp, _, _ in infected_results:
-            success = delete_file(fp)
-            if success:
-                print(f"  {C_GREEN}[+] Deleted → {fp}{C_RESET}")
+        print(f"\n  {C_RED}[*] Deleting all infected files...{C_RESET}")
+        for fp, detail, _ in infected_results:
+            _do_delete(fp, detail, results)
+
+    elif action == 'r':
+        print(f"\n  {C_BRIGHT}[*] Reviewing one by one...{C_RESET}\n")
+        batch_action = None
+        for idx, (fp, detail, _) in enumerate(infected_results):
+            if batch_action:
+                if batch_action == 'q':
+                    _do_quarantine(fp, detail, results)
+                elif batch_action == 'd':
+                    _do_delete(fp, detail, results)
+                continue
+
+            remaining = len(infected_results) - idx
+            print(f"  {C_RED}[INFECTED]{C_RESET} {fp}")
+            print(f"  {C_YELLOW}→ {detail}{C_RESET}")
+            print(f"  ({C_YELLOW}Q{C_RESET})uarantine  "
+                  f"({C_RED}D{C_RESET})elete  "
+                  f"({C_GREEN}S{C_RESET})kip  "
+                  f"({C_BRIGHT}A{C_RESET})pply to all remaining ({remaining})")
+            try:
+                choice = input(f"  Choice: ").strip().lower()
+            except (EOFError, KeyboardInterrupt):
+                print(f"  {C_YELLOW}Skipping remaining.{C_RESET}")
+                break
+
+            if choice == 'q':
+                _do_quarantine(fp, detail, results)
+            elif choice == 'd':
+                _do_delete(fp, detail, results)
+            elif choice == 'a':
+                print(f"\n  Apply to all remaining {remaining} files?")
+                print(f"  ({C_YELLOW}Q{C_RESET})uarantine  ({C_RED}D{C_RESET})elete  ({C_GREEN}S{C_RESET})kip")
+                try:
+                    batch_choice = input(f"  Choice: ").strip().lower()
+                except (EOFError, KeyboardInterrupt):
+                    batch_choice = 's'
+                if batch_choice in ('q', 'd'):
+                    batch_action = batch_choice
+                    if batch_action == 'q':
+                        _do_quarantine(fp, detail, results)
+                    elif batch_action == 'd':
+                        _do_delete(fp, detail, results)
+                else:
+                    print(f"  {C_GREY}[*] Skipping remaining.{C_RESET}")
+                    break
             else:
-                print(f"  {C_RED}[!] Failed to delete: {fp}{C_RESET}")
+                print(f"  {C_GREY}[*] Skipped.{C_RESET}")
+            print()
 
     else:
         print(f"\n  {C_GREY}[*] Skipped. No action taken.{C_RESET}")
@@ -192,11 +260,12 @@ def request_report(results, fmt, host, port, token, scan_duration):
             "results": [
                 {
                     "file":        fp,
-                    "infected":    infected,
+                    "infected":    is_infected,
                     "detail":      detail,
-                    "engine_type": engine_type or ""
+                    "engine_type": engine_type or "",
+                    "status":      status
                 }
-                for fp, infected, detail, engine_type in results
+                for fp, is_infected, detail, engine_type, status in results
             ]
         })
 
@@ -246,9 +315,8 @@ def write_log(results, log_path, host, port):
         f.write(f"Host      : {socket.gethostname()}\n")
         f.write(f"Daemon    : {host}:{port}\n")
         f.write(f"{'=' * 55}\n")
-        for filepath, is_infected, detail, _ in results:
-            status = "INFECTED" if is_infected else "CLEAN"
-            f.write(f"[{status}] {filepath} | {detail}\n")
+        for fp, is_infected, detail, _, status in results:
+            f.write(f"[{status}] {fp} | {detail}\n")
 
 
 # --- ENTRY POINT ---
@@ -294,20 +362,22 @@ def main():
     if target.is_file():
         is_infected, detail, engine_type = scan_file(str(target), host, port, token)
         _print_live(str(target), is_infected, detail)
-        results = [(str(target), is_infected, detail, engine_type)]
+        status  = "INFECTED" if is_infected else "CLEAN"
+        results = [(str(target), is_infected, detail, engine_type, status)]
     else:
         results = scan_directory(str(target), host, port, token)
 
     duration = time.time() - start
 
     print_summary(results, duration, log_path)
-    write_log(results, log_path, host, port)
 
     infected_results = [(fp, detail, engine_type)
-                        for fp, is_infected, detail, engine_type in results
+                        for fp, is_infected, detail, engine_type, _ in results
                         if is_infected]
     if infected_results:
-        prompt_remediation(infected_results)
+        prompt_remediation(infected_results, results)
+
+    write_log(results, log_path, host, port)
 
     if args.output:
         print(f"\n  {C_YELLOW}[*] Requesting report from daemon...{C_RESET}")
