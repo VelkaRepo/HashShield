@@ -83,12 +83,13 @@ if not API_KEY:
 # 2. HELPER FUNCTIONS
 # =======================================================
 def print_banner():
-    banner = f"""{C_YELLOW}{C_BRIGHT} 
-▗▖ ▗▖ ▗▄▖  ▗▄▄▖▗▖ ▗▖ ▗▄▄▖▗▖ ▗▖▗▄▄▄▖▗▄▄▄▖▗▖   ▗▄▄▄ 
-▐▌ ▐▌▐▌ ▐▌▐▌   ▐▌ ▐▌▐▌   ▐▌ ▐▌  █  ▐▌   ▐▌   ▐▌  █
-▐▛▀▜▌▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌ ▝▀▚▖▐▛▀▜▌  █  ▐▛▀▀▘▐▌   ▐▌  █
-▐▌ ▐▌▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▗▄▄▞▘▐▌ ▐▌▗▄█▄▖▐▙▄▄▖▐▙▄▄▖▐▙▄▄▀                                                       
-                                               
+    banner = f"""{C_YELLOW}{C_BRIGHT}
+  _   _           _     _____ _     _      _     _ 
+ | | | | __ _ ___| |__ / ____| |__ (_) ___| | __| |
+ | |_| |/ _` / __| '_ \\___ \\| '_ \\| |/ _ \\ |/ _` |
+ |  _  | (_| \\__ \\ | | |___) | | | | |  __/ | (_| |
+ |_| |_|\\__,_|___/_| |_|_____/|_| |_|_|\\___|_|\\__,_|
+                                                     
     {C_RESET}{C_GREY}[ {C_YELLOW}HashShield v2.0{C_GREY} | {C_YELLOW}Hybrid Antivirus Engine{C_GREY} ]{C_RESET}
     {C_GREY}[ {C_YELLOW}Author: Dion{C_GREY}    | {C_YELLOW}Skripsi Project{C_GREY}         ]{C_RESET}
     """
