@@ -95,7 +95,9 @@ def scan_directory(directory, host, port, token):
     results = []
     for item in Path(directory).rglob("*"):
         try:
-            if not item.is_file(follow_symlinks=False):
+            if os.path.islink(item):
+                continue
+            if not item.is_file():
                 continue
             if any(part in EXCLUDED_DIRS for part in item.parts):
                 continue
