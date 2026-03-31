@@ -437,9 +437,26 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
     file_hash = await calculate_file_hash_async(filepath)
     if not file_hash: return filepath, False, "Error: Could not calculate file hash.", None
 
+    # --- CACHE ---
     if file_hash in cache:
-        return filepath, (cache[file_hash] == 'malicious'), f"Result from cache: {cache[file_hash]}", "Cloud"
+        cached_data = cache[file_hash]
+        if "|" in cached_data:
+            parts = cached_data.split("|")
+            is_mal_str = parts[0]
+            msg = parts[1]
+            vt_url = parts[2] if len(parts) > 2 else "" 
+            
+            is_malicious = (is_mal_str == "True")
+            clean_msg = msg.replace("DANGER! ", "")
+            
+            final_msg = f"{clean_msg}|{vt_url}" if vt_url else f"{clean_msg}"
+                
+            return filepath, is_malicious, final_msg, "Cloud" if is_malicious else None
+        else:
+            is_malicious = (cached_data == 'malicious')
+            return filepath, is_malicious, f"Result from cache: {cached_data}", "Cloud" if is_malicious else None
 
+    # --- API VirusTotal ---
     headers = {"x-apikey": API_KEY, "Accept": "application/json"}
     try:
         async with session.get(f"{API_URL}{file_hash}", headers=headers, timeout=20) as response:
@@ -455,9 +472,13 @@ async def scan_file_hybrid_async(filepath, cache, session, yara_rules, args):
                     else: report_msg = msg
                 else: report_msg = "File hash not in VirusTotal DB. Assumed clean."
 
-            cache[file_hash] = 'malicious' if is_malicious else 'clean'
+            vt_url = f"https://www.virustotal.com/gui/file/{file_hash}"
+            cache[file_hash] = f"{is_malicious}|{report_msg}|{vt_url}"
             save_cache(cache)
-            return filepath, is_malicious, report_msg, "Cloud" if is_malicious else None
+            
+            report_msg_with_link = f"{report_msg}|{vt_url}" if is_malicious else report_msg
+            
+            return filepath, is_malicious, report_msg_with_link, "Cloud" if is_malicious else None
     except Exception as e: return filepath, False, f"Error: {e}", None
 
 # =======================================================
@@ -492,6 +513,13 @@ def generate_html_report(results, output_path, scan_duration=0):
 
             # Strip "DANGER!" prefixes for clean display
             clean_threat = threat_name or ""
+            vt_link = ""
+            
+            if "|" in clean_threat and "virustotal.com" in clean_threat:
+                parts = clean_threat.split("|", 1)
+                clean_threat = parts[0]
+                vt_link = parts[1]
+
             for prefix in [
                 "DANGER! Shield Engine Detected: ",
                 "DANGER! Locally detected by YARA rule: ",
@@ -547,6 +575,7 @@ def generate_html_report(results, output_path, scan_duration=0):
                 'client':         current_hostname,
                 'engine':         engine_label,
                 'threat':         clean_threat,
+                'vt_url':         vt_link,
                 'severity':       severity,
                 'severity_badge': severity_badge,
                 '_weight':        {"CRITICAL":0,"HIGH":1,"MEDIUM":2,"REMEDIATED":3,"INFORMATIONAL":4}.get(severity, 4)

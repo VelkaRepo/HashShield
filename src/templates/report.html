@@ -183,7 +183,12 @@
                                 <code class="small text-dark" title="{{ item.file }}">{{ item.file }}</code>
                             </td>
                             <td><span class="badge bg-light text-dark border">{{ item.engine }}</span></td>
-                            <td class="{{ 'text-danger fw-bold' if item.is_infected else 'text-success' }} small">{{ item.threat }}</td>
+                            <td class="{{ 'text-danger fw-bold' if item.is_infected else 'text-success' }} small">
+    {{ item.threat }}
+    {% if item.vt_url %}
+        <a href="{{ item.vt_url }}" target="_blank" class="badge bg-warning text-dark text-decoration-none ms-2 shadow-sm" title="View Full Report on VirusTotal">🔍 View VT</a>
+    {% endif %}
+</td>
                         </tr>
                         {% endfor %}
                     </tbody>

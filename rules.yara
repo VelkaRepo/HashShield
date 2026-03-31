@@ -35,16 +35,6 @@ rule Dummy_Threat_Test_String : dummy_threat test_file
         $dummy_text
 }
 
-rule Is_Windows_Executable : pe executable windows
-{
-    meta:
-        description = "Detects a Windows PE file (EXE, DLL, etc.) by its 'MZ' magic bytes."
-        author = "HashShield Project"
-    strings:
-        $magic_bytes = { 4D 5A }
-    condition:
-        $magic_bytes at 0
-}
 
 // --- FIXED RULE: CATCHES YOUR GENERATED TROJANS ---
 rule MSFVenom_Calc_Payload {
