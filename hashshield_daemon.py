@@ -10,21 +10,27 @@ import socketserver
 import sys
 import threading
 import uuid
+import urllib.request
+import urllib.error
 from datetime import datetime
 from dotenv import load_dotenv
 
 # --- CONFIGURATION ---
-current_dir  = os.path.dirname(os.path.abspath(__file__))
-env_path     = os.path.join(current_dir, 'src', '.env')
+current_dir    = os.path.dirname(os.path.abspath(__file__))
+env_path       = os.path.join(current_dir, 'src', '.env')
 load_dotenv(env_path)
+
 DAEMON_PORT    = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
 AUTH_TOKEN     = os.getenv("SHIELD_AUTH_TOKEN", "")
 TAILSCALE_IP   = os.getenv("SHIELD_TAILSCALE_IP", "")
 LOCAL_IP       = os.getenv("SHIELD_LOCAL_IP", "")
 HTTP_PORT      = int(os.getenv("SHIELD_HTTP_PORT", 8080))
+VT_API_KEY     = os.getenv("VIRUSTOTAL_API_KEY", "")
+
 TEMP_DIR       = "/tmp"
 TEMPLATE_DIR   = os.path.join(current_dir, 'src', 'templates')
 DIST_DIR       = os.path.join(current_dir, 'dist')
+CACHE_FILE     = os.path.join(current_dir, 'scan_cache.txt')
 
 WHITELIST_DIRS = ["C:\\Windows\\System32", "C:\\Windows\\SysWOW64"]
 
@@ -111,6 +117,78 @@ def is_system_protected(filepath):
     return any(filepath.startswith(path) for path in WHITELIST_DIRS)
 
 
+# --- VIRUSTOTAL INTEGRATION (PHASE 3) ---
+
+def check_virustotal_sync(file_sha256):
+    if not VT_API_KEY:
+        return None
+    
+    cache = {}
+    # 1. Read Cache
+    if os.path.exists(CACHE_FILE):
+        try:
+            with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+                for line in f:
+                    if ':' in line:
+                        h, val = line.strip().split(':', 1)
+                        cache[h] = val
+        except Exception:
+            pass
+    
+    if file_sha256 in cache:
+        cached_data = cache[file_sha256]
+        if "|" in cached_data:
+            parts = cached_data.split("|")
+            is_mal_str = parts[0]
+            msg = parts[1]
+            vt_url = parts[2] if len(parts) > 2 else ""
+            
+            if is_mal_str == "True":
+                clean_msg = msg.replace("DANGER! ", "")
+                final_msg = f"[Cached] {clean_msg}|{vt_url}" if vt_url else f"[Cached] {clean_msg}"
+                return final_msg, "Cloud"
+            else:
+                return None
+        else:
+            if cached_data == 'malicious':
+                return "Result from cache: malicious", "Cloud"
+            return None
+
+    # 2. Query VirusTotal API
+    url = f"https://www.virustotal.com/api/v3/files/{file_sha256}"
+    req = urllib.request.Request(url, headers={"x-apikey": VT_API_KEY, "Accept": "application/json"})
+    try:
+        with urllib.request.urlopen(req, timeout=10) as response:
+            data = json.loads(response.read().decode())
+            stats = data.get("data", {}).get("attributes", {}).get("last_analysis_stats", {})
+            malicious_count = stats.get("malicious", 0)
+            
+            is_malicious = (malicious_count > 0)
+            report_msg = f"Detected by {malicious_count} vendors on VirusTotal." if is_malicious else "Clean on VirusTotal."
+            vt_url = f"https://www.virustotal.com/gui/file/{file_sha256}"
+            
+            # Write to Cache
+            cache[file_sha256] = f"{is_malicious}|{report_msg}|{vt_url}"
+            try:
+                with open(CACHE_FILE, 'w', encoding='utf-8') as f:
+                    for h, val in cache.items():
+                        f.write(f"{h}:{val}\n")
+            except:
+                pass
+            
+            if is_malicious:
+                return f"{report_msg}|{vt_url}", "Cloud"
+            return None
+            
+    except urllib.error.HTTPError as e:
+        if e.code == 404: # Hash not found, assume clean locally
+            return None
+    except Exception as e:
+        print(f"[!] VT API Error in Daemon: {e}")
+        
+    return None
+
+
 # --- SCAN ENGINE ---
 
 def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
@@ -132,11 +210,13 @@ def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
         file_md5    = md5_hasher.hexdigest()
         file_sha256 = sha256_hasher.hexdigest()
 
+        # Phase 1: Local Hash
         if file_md5 in hash_db:
             return hash_db[file_md5], "HASH"
         if file_sha256 in hash_db:
             return hash_db[file_sha256], "HASH"
 
+        # Phase 2: Heuristic YARA
         if yara_engine:
             matches = yara_engine.match(filepath)
             if matches:
@@ -152,6 +232,11 @@ def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
                     return real_threat_name, "YARA"
 
                 return str(match.rule), "YARA"
+
+        # Phase 3: Cloud Intelligence (API VirusTotal)
+        vt_result = check_virustotal_sync(file_sha256)
+        if vt_result:
+            return vt_result[0], vt_result[1] # Returns (threat_message, "Cloud")
 
     except Exception as e:
         print(f"[!] Engine Error while scanning {filepath}: {e}")
@@ -205,7 +290,6 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
     try:
         from jinja2 import Environment, FileSystemLoader
 
-        SEVERITY_WEIGHT = {"CRITICAL": 0, "HIGH": 1, "MEDIUM": 2, "INFORMATIONAL": 3}
         dist_data       = {"Hash": 0, "Heuristic": 0, "Cloud": 0, "Clean": clean}
         report_data     = []
 
@@ -214,32 +298,41 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
             threat       = r["detail"]
             engine_type  = r.get("engine_type", "YARA")
             status       = r.get("status", "INFECTED" if is_infected else "CLEAN")
-            engine_label = "Shield Engine" if is_infected else "Local Engine"
+            engine_label = "Shield Engine" if engine_type in ["HASH", "YARA"] else "Cloud Engine"
 
             severity       = "INFORMATIONAL"
             severity_badge = "bg-hs-info text-white"
+            
+            # --- Extract VT Link if present ---
+            clean_threat = threat or ""
+            vt_link = ""
+            if "|" in clean_threat and "virustotal.com" in clean_threat:
+                parts = clean_threat.split("|", 1)
+                clean_threat = parts[0]
+                vt_link = parts[1]
 
-            if status == "QUARANTINED":
-                severity       = "REMEDIATED"
-                severity_badge = "bg-hs-remediated text-white"
-                if engine_type == "HASH":
-                    dist_data["Hash"] += 1
-                else:
-                    dist_data["Heuristic"] += 1
+            # Strip prefixes
+            for prefix in ["DANGER! Shield Engine Detected: ", "DANGER! Locally detected by YARA rule: ", "DANGER! ", "[Cached] "]:
+                if clean_threat.startswith(prefix):
+                    clean_threat = clean_threat[len(prefix):]
+                    break
 
-            elif status == "DELETED":
+            if status == "QUARANTINED" or status == "DELETED":
                 severity       = "REMEDIATED"
-                severity_badge = "bg-hs-deleted text-white"
-                if engine_type == "HASH":
-                    dist_data["Hash"] += 1
-                else:
-                    dist_data["Heuristic"] += 1
+                severity_badge = "bg-hs-remediated text-white" if status == "QUARANTINED" else "bg-hs-deleted text-white"
+                if engine_type == "HASH": dist_data["Hash"] += 1
+                elif engine_type == "Cloud": dist_data["Cloud"] += 1
+                else: dist_data["Heuristic"] += 1
 
             elif is_infected:
                 if engine_type == "HASH":
                     severity       = "CRITICAL"
                     severity_badge = "bg-hs-critical text-white"
                     dist_data["Hash"] += 1
+                elif engine_type == "Cloud":
+                    severity       = "MEDIUM"
+                    severity_badge = "bg-hs-medium text-dark"
+                    dist_data["Cloud"] += 1
                 else:
                     severity       = "HIGH"
                     severity_badge = "bg-hs-high text-white"
@@ -253,7 +346,8 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
                 "file":           r["file"],
                 "client":         hostname,
                 "engine":         engine_label,
-                "threat":         threat,
+                "threat":         clean_threat,
+                "vt_url":         vt_link,
                 "severity":       severity,
                 "severity_badge": severity_badge,
                 "_weight":        REMEDIATED_WEIGHT.get(severity, 4)
