@@ -432,6 +432,37 @@ if __name__ == "__main__":
 
     db_hashes, db_heuristics, ndb_map = download_clamav_hashes()
 
+    custom_hash_file = os.path.join(current_dir, "custom_hash.db")
+    if os.path.exists(custom_hash_file):
+        import re 
+        custom_count = 0
+        with open(custom_hash_file, "r") as f:
+            for line in f:
+                parts = line.strip().split(maxsplit=1)
+                if len(parts) >= 2:
+                    custom_md5 = parts[0].lower()
+                    
+                    raw_filename = parts[1].strip()
+                    if raw_filename.startswith('*'):
+                        raw_filename = raw_filename[1:]
+                        
+                    platform_prefix = "Win"
+                    if raw_filename.lower().endswith('.apk'):
+                        platform_prefix = "Android"
+                    elif raw_filename.lower().endswith(('.elf', '.sh')):
+                        platform_prefix = "Linux"
+                    elif raw_filename.lower().endswith(('.doc', '.pdf')):
+                        platform_prefix = "Doc"
+
+                    clean_name = re.sub(r'\.(exe|apk|elf|zip)$', '', raw_filename, flags=re.IGNORECASE)
+                    
+                    clean_name = re.sub(r'[^a-zA-Z0-9]', '', clean_name.title())
+                    
+                    authentic_label = f"{platform_prefix}.Malware.{clean_name}"
+                    
+                    db_hashes[custom_md5] = authentic_label
+                    custom_count += 1
+
     if not db_hashes:
         print("[CRITICAL] Failed to load database engine.")
         sys.exit(1)
