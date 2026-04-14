@@ -23,7 +23,10 @@ else:
     _base_dir = Path(__file__).resolve().parent
 load_dotenv(_base_dir / ".env")
 
-DEFAULT_HOST  = os.getenv("SHIELD_SERVER", "192.168.18.6")
+# Ambil IP Lokal dan Tailscale dari .env
+LOCAL_IP      = os.getenv("SHIELD_LOCAL_IP", "192.168.18.6")
+TAILSCALE_IP  = os.getenv("SHIELD_TAILSCALE_IP", "")
+DEFAULT_HOST  = LOCAL_IP or TAILSCALE_IP or "127.0.0.1"
 DEFAULT_PORT  = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
 DEFAULT_TOKEN = os.getenv("SHIELD_AUTH_TOKEN", "")
 TIMEOUT       = 10.0
@@ -39,9 +42,10 @@ C_BRIGHT = Style.BRIGHT
 
 # --- CONNECTION ---
 
-def check_daemon(host, port):
+def check_daemon(host, port, timeout=1.5):
+    """Pengecekan port dengan timeout super cepat untuk failover"""
     try:
-        with socket.create_connection((host, port), timeout=TIMEOUT):
+        with socket.create_connection((host, port), timeout=timeout):
             return True
     except OSError:
         return False
@@ -349,20 +353,40 @@ def main():
                         help="Report format (default: html)")
     args = parser.parse_args()
 
-    host     = args.server
     port     = args.port
     token    = args.token
     log_path = Path.cwd() / "agent_log.txt"
 
     print(f"\n{C_YELLOW}{C_BRIGHT}  HashShield Agent{C_RESET}  "
-          f"{C_GREY}→ {host}:{port}{C_RESET}\n")
+          f"{C_GREY}→ Mencari rute jaringan terbaik...{C_RESET}\n")
 
-    if not check_daemon(host, port):
-        print(f"  {C_RED}[ERROR]{C_RESET} Cannot reach daemon at {host}:{port}")
-        print(f"  {C_GREY}Make sure the daemon is running on the server.{C_RESET}\n")
+    # --- SMART CONNECTION ROUTING ---
+    target_ips = []
+    
+    # Jika user memaksa menggunakan flag --server spesifik di terminal
+    if args.server != DEFAULT_HOST and args.server:
+        target_ips.append(("Manual Flag", args.server))
+    else:
+        # Jika menggunakan default, kita susun hierarki pencarian (Lokal dulu, baru Tailscale)
+        if LOCAL_IP: target_ips.append(("Lokal", LOCAL_IP))
+        if TAILSCALE_IP: target_ips.append(("Tailscale", TAILSCALE_IP))
+
+    host = None
+    for route_name, ip in target_ips:
+        print(f"  [*] Mencoba koneksi {route_name} ({ip}:{port}) ... ", end="")
+        if check_daemon(ip, port, timeout=1.5): # Timeout 1.5 detik agar cepat failover
+            print(f"{C_GREEN}SUKSES{C_RESET}")
+            host = ip
+            break
+        else:
+            print(f"{C_RED}GAGAL{C_RESET}")
+
+    if not host:
+        print(f"\n  {C_RED}[ERROR]{C_RESET} Cannot reach daemon at any known IP addresses.")
+        print(f"  {C_GREY}Pastikan Daemon Kali Linux menyala dan terhubung ke Jaringan / Tailscale.{C_RESET}\n")
         return
 
-    print(f"  {C_GREEN}[+] Daemon reachable. Starting scan...{C_RESET}\n")
+    print(f"\n  {C_GREEN}[+] Daemon reachable via {host}. Starting scan...{C_RESET}\n")
     print(f"{'─' * 55}")
 
     target = Path(args.path)
