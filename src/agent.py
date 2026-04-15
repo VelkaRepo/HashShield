@@ -8,8 +8,11 @@ import socket
 import sys
 import time
 import hashlib
+import subprocess
 from datetime import datetime
 from pathlib import Path
+import threading
+import requests
 
 import colorama
 from colorama import Fore, Style
@@ -44,7 +47,6 @@ C_BRIGHT = Style.BRIGHT
 # --- CONNECTION ---
 
 def check_daemon(host, port, timeout=1.5):
-    """Pengecekan port dengan timeout super cepat untuk failover"""
     try:
         with socket.create_connection((host, port), timeout=timeout):
             return True
@@ -372,6 +374,53 @@ def write_log(results, log_path, host, port):
         for fp, is_infected, detail, _, status in results:
             f.write(f"[{status}] {fp} | {detail}\n")
 
+# --- EDITED: HEARTBEAT WORKER ---
+def heartbeat_worker(daemon_ip="100.72.155.33", http_port=8080):
+    url = f"http://{daemon_ip}:{http_port}/api/heartbeat"
+    hostname = socket.gethostname()
+    os_info = f"{platform.system()} {platform.release()}"
+    
+    # 1. Deteksi IP Lokal
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+    except:
+        local_ip = "127.0.0.1"
+
+    # 2. Deteksi IP Tailscale
+    tailscale_ip = "—"
+    try:
+        # Penanganan khusus jika berjalan di Windows Server
+        if platform.system() == "Windows":
+            cmd = [r"C:\Program Files\Tailscale\tailscale.exe", "ip", "-4"]
+        else:
+            cmd = ["tailscale", "ip", "-4"]
+        
+        res = subprocess.run(cmd, capture_output=True, text=True, timeout=2)
+        if res.returncode == 0:
+            tailscale_ip = res.stdout.strip()
+    except Exception:
+        pass
+
+    # Mengirim sinyal kehidupan secara diam-diam
+    while True:
+        try:
+            payload = {
+                "hostname": hostname,
+                "os": os_info,
+                "localIp": local_ip,
+                "tailscaleIp": tailscale_ip,
+                "scans": 0, 
+                "threats": 0
+            }
+            requests.post(url, json=payload, timeout=3)
+        except Exception:
+            pass # Abaikan jika gagal (misal daemon belum nyala)
+        
+        time.sleep(10) # Melapor setiap 10 detik
+
 
 # --- ENTRY POINT ---
 
@@ -393,6 +442,11 @@ def main():
     port     = args.port
     token    = args.token
     log_path = Path.cwd() / "agent_log.txt"
+    
+    # --- EDITED: START HEARTBEAT BACKGROUND ---
+    # Thread berjalan di background. Begitu user mematikan CMD, thread ikut mati.
+    h_thread = threading.Thread(target=heartbeat_worker, daemon=True)
+    h_thread.start()
 
     print(f"\n{C_YELLOW}{C_BRIGHT}  HashShield Agent{C_RESET}  "
           f"{C_GREY}→ Mencari rute jaringan terbaik...{C_RESET}\n")

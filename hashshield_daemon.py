@@ -14,6 +14,10 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from dotenv import load_dotenv
+import asyncio 
+from aiohttp import web
+import time
+
 
 # --- CONFIGURATION ---
 current_dir    = os.path.dirname(os.path.abspath(__file__))
@@ -33,6 +37,10 @@ DIST_DIR       = os.path.join(current_dir, 'dist')
 CACHE_FILE     = os.path.join(current_dir, 'scan_cache.txt')
 
 WHITELIST_DIRS = ["C:\\Windows\\System32", "C:\\Windows\\SysWOW64"]
+
+# --- DATABASE MEMORY UNTUK DASHBOARD ---
+AGENTS_DB = {}
+THREATS_DB = []
 
 try:
     from src.shield_engine import download_clamav_hashes
@@ -67,23 +75,64 @@ def start_http_server(active_ip):
         print(f"[WARN] dist/ folder not found. HTTP server not started.")
         return
 
-    class QuietHandler(http.server.SimpleHTTPRequestHandler):
-        def __init__(self, *args, **kwargs):
-            super().__init__(*args, directory=DIST_DIR, **kwargs)
-        def log_message(self, format, *args):
-            pass
+    # 1. API Handlers
+    async def api_get_agents(request):
+        current_time = time.time()
+        agent_list = []
+        for agent_id, data in AGENTS_DB.items():
+            # Jika 15 detik tidak ada kabar, anggap offline
+            if current_time - data['last_heartbeat'] > 15:
+                data['status'] = 'offline'
+            agent_list.append(data)
+        return web.json_response(agent_list)
 
-    try:
-        httpd = socketserver.TCPServer(("0.0.0.0", HTTP_PORT), QuietHandler)
-        thread = threading.Thread(target=httpd.serve_forever, daemon=True)
-        thread.start()
-        print(f"[*] HTTP Server Online. Serving dist/ on port {HTTP_PORT}...")
-        print(f"")
-        print(f"[ENROLL] Run this on your Windows client:")
-        print(f"  curl -o install.bat http://{active_ip}:{HTTP_PORT}/install.bat && .\\install.bat")
-        print(f"")
-    except Exception as e:
-        print(f"[!] HTTP Server Error: {e}")
+    async def api_get_threats(request):
+        # Kembalikan 50 ancaman terbaru (dibalik agar yang baru di atas)
+        return web.json_response(list(reversed(THREATS_DB))[:50])
+
+    async def api_heartbeat(request):
+        try:
+            data = await request.json()
+            hostname = data.get('hostname', 'Unknown')
+            AGENTS_DB[hostname] = {
+                "hostname": hostname,
+                "os": data.get('os', 'Windows Server'),
+                "status": "online",
+                "localIp": data.get('localIp', 'Unknown'),
+                "tailscaleIp": data.get('tailscaleIp', '—'),
+                "lastSeen": "Just now",
+                "last_heartbeat": time.time(),
+                "scans": data.get('scans', 0),
+                "threats": data.get('threats', 0)
+            }
+            return web.json_response({"status": "ok"})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=400)
+
+    async def index_handler(request):
+        return web.FileResponse(os.path.join(DIST_DIR, 'dashboard.html'))
+
+    # 2. Setup Aplikasi & Routing
+    app = web.Application()
+    app.router.add_get('/api/agents', api_get_agents)
+    app.router.add_get('/api/threats', api_get_threats)
+    app.router.add_post('/api/heartbeat', api_heartbeat)
+    app.router.add_get('/', index_handler)
+    app.router.add_static('/', path=DIST_DIR, name='static')
+
+    # 3. Jalankan di Background Thread
+    def run_server():
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        runner = web.AppRunner(app)
+        loop.run_until_complete(runner.setup())
+        site = web.TCPSite(runner, '0.0.0.0', HTTP_PORT)
+        loop.run_until_complete(site.start())
+        loop.run_forever()
+
+    thread = threading.Thread(target=run_server, daemon=True)
+    thread.start()
+    print(f"[*] EDR Dashboard & API Online. Serving on http://{active_ip}:{HTTP_PORT}...")
 
 
 # --- PROTOCOL HELPERS ---
@@ -575,6 +624,22 @@ if __name__ == "__main__":
             if scan_result:
                 threat_name, engine_type = scan_result
                 print(f"[ALERT] [{client_identity}] Infected: {threat_name} ({engine_type})")
+                
+                # --- TAMBAHAN UNTUK DASHBOARD ---
+                THREATS_DB.append({
+                    "sev": "CRITICAL" if engine_type == "HASH" else "HIGH",
+                    "name": threat_name,
+                    "family": "Malware Detection",
+                    "engine": engine_type,
+                    "path": target_path,
+                    "agent": client_identity,
+                    "status": "INFECTED",
+                    "time": datetime.now().strftime("%H:%M:%S"),
+                    "hash": file_sha256 if file_sha256 else "—",
+                    "desc": "Terdeteksi secara real-time oleh HashShield Engine.",
+                    "mitigation": "Direkomendasikan untuk segera dikarantina.",
+                    "vt": f"https://www.virustotal.com/gui/file/{file_sha256}" if file_sha256 else ""
+                })
                 
                 if file_sha256 and engine_type != "Cloud": 
                     with open(CACHE_FILE, 'a', encoding='utf-8') as f:
