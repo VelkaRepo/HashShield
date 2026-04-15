@@ -168,11 +168,9 @@ def check_virustotal_sync(file_sha256):
             vt_url = f"https://www.virustotal.com/gui/file/{file_sha256}"
             
             # Write to Cache
-            cache[file_sha256] = f"{is_malicious}|{report_msg}|{vt_url}"
             try:
-                with open(CACHE_FILE, 'w', encoding='utf-8') as f:
-                    for h, val in cache.items():
-                        f.write(f"{h}:{val}\n")
+                with open(CACHE_FILE, 'a', encoding='utf-8') as f:
+                    f.write(f"{file_sha256}:{is_malicious}|{report_msg}|{vt_url}\n")
             except:
                 pass
             
@@ -419,6 +417,24 @@ def _generate_txt(results, hostname, client_ip, scan_time,
         lines.append(f"[{status}] {r['file']} | {r['detail']}")
     return "\n".join(lines)
 
+def check_global_cache(sha256_hash):
+    if not os.path.exists(CACHE_FILE): return None
+    try:
+        with open(CACHE_FILE, 'r', encoding='utf-8') as f:
+            for line in f:
+                if line.startswith(sha256_hash + ":"):
+                    val = line.strip().split(':', 1)[1]
+                    parts = val.split('|')
+                    is_mal = parts[0]
+                    if is_mal == "True":
+                        threat = parts[1]
+                        engine = parts[2] if len(parts) > 2 else "Cloud"
+                        if engine.startswith("http"): engine = "Cloud"
+                        return f"INFECTED:{engine}:{threat}"
+                    elif is_mal == "False":
+                        return "CLEAN"
+    except: pass
+    return None
 
 # --- SERVER CORE ---
 
@@ -508,7 +524,9 @@ if __name__ == "__main__":
                 conn.close()
                 continue
 
-            if data.get("type") == "generate_report":
+            req_type = data.get("type", "")
+
+            if req_type == "generate_report":
                 print(f"[*] [{client_identity}] Report request ({data.get('format', 'html')})")
                 content = generate_report(data)
                 conn.sendall(content.encode())
@@ -521,9 +539,34 @@ if __name__ == "__main__":
                 conn.close()
                 continue
 
-            print(f"[*] [{client_identity}] Request: {target_path}")
+            if req_type == "check_hash":
+                md5_hash = data.get("md5", "")
+                sha256_hash = data.get("sha256", "")
+                
+                if md5_hash in db_hashes:
+                    conn.send(f"INFECTED:HASH:{db_hashes[md5_hash]}".encode())
+                    conn.close()
+                    continue
+                if sha256_hash in db_hashes:
+                    conn.send(f"INFECTED:HASH:{db_hashes[sha256_hash]}".encode())
+                    conn.close()
+                    continue
+                
+                cached_res = check_global_cache(sha256_hash)
+                if cached_res:
+                    conn.send(cached_res.encode())
+                    conn.close()
+                    continue
+                
+                conn.send(b"UNKNOWN")
+                conn.close()
+                continue
+
+            print(f"[*] [{client_identity}] Request Scan: {target_path}")
 
             scan_result = None
+            file_sha256 = data.get("sha256", "")
+            
             if "content" in data:
                 scan_result = handle_remote_scan(data, db_hashes, db_heuristics, ndb_map)
             else:
@@ -532,8 +575,16 @@ if __name__ == "__main__":
             if scan_result:
                 threat_name, engine_type = scan_result
                 print(f"[ALERT] [{client_identity}] Infected: {threat_name} ({engine_type})")
+                
+                if file_sha256 and engine_type != "Cloud": 
+                    with open(CACHE_FILE, 'a', encoding='utf-8') as f:
+                        f.write(f"{file_sha256}:True|{threat_name}|{engine_type}\n")
+                        
                 conn.send(f"INFECTED:{engine_type}:{threat_name}".encode())
             else:
+                if file_sha256:
+                    with open(CACHE_FILE, 'a', encoding='utf-8') as f:
+                        f.write(f"{file_sha256}:False|Clean|None\n")
                 conn.send(b"CLEAN")
 
             conn.close()

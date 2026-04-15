@@ -47,7 +47,7 @@ dist/
 src/main.cvd
 src/*.hdb
 src/*.ndb
-.db
+custom_hash.db
 # 2. Live Malware Zone (DO NOT UPLOAD MALWARE TO GITHUB)
 live_malware_test/
 virus.txt

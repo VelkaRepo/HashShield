@@ -7,6 +7,7 @@ import shutil
 import socket
 import sys
 import time
+import hashlib
 from datetime import datetime
 from pathlib import Path
 
@@ -59,14 +60,51 @@ def scan_file(filepath, host, port, token):
         if file_size > MAX_FILE_SIZE:
             return False, "Skipped (file exceeds 32MB limit)", None
 
+        sha256 = hashlib.sha256()
+        md5 = hashlib.md5()
+        with open(filepath, 'rb') as f:
+            while chunk := f.read(65536):
+                sha256.update(chunk)
+                md5.update(chunk)
+        file_sha256 = sha256.hexdigest()
+        file_md5 = md5.hexdigest()
+
+        handshake_payload = json.dumps({
+            "type": "check_hash",
+            "token": token,
+            "hostname": socket.gethostname(),
+            "md5": file_md5,
+            "sha256": file_sha256
+        })
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(TIMEOUT)
+            s.connect((host, port))
+            s.sendall(handshake_payload.encode())
+            s.shutdown(socket.SHUT_WR)
+            response = s.recv(1024).decode().strip()
+
+        if response == "UNAUTHORIZED":
+            return False, "Error: Invalid token", None
+        
+        if response != "UNKNOWN":
+            if response.startswith("INFECTED"):
+                parts = response.split(":", 2)
+                engine_type = parts[1] if len(parts) > 2 else "YARA"
+                threat = parts[2] if len(parts) > 2 else "Unknown Threat"
+                return True, threat, engine_type
+            elif response == "CLEAN":
+                return False, "Clean", None
+
         with open(filepath, "rb") as f:
             encoded = base64.b64encode(f.read()).decode()
 
         payload = json.dumps({
-            "token":    token,
+            "token": token,
             "hostname": socket.gethostname(),
-            "path":     os.path.abspath(filepath),
-            "content":  encoded
+            "path": os.path.abspath(filepath),
+            "content": encoded,
+            "sha256": file_sha256
         })
 
         with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
@@ -76,13 +114,12 @@ def scan_file(filepath, host, port, token):
             s.shutdown(socket.SHUT_WR)
             response = s.recv(1024).decode().strip()
 
-        if response == "UNAUTHORIZED":
-            return False, "Error: Invalid token — check .env SHIELD_AUTH_TOKEN", None
         if response.startswith("INFECTED"):
-            parts       = response.split(":", 2)
+            parts = response.split(":", 2)
             engine_type = parts[1] if len(parts) > 2 else "YARA"
-            threat      = parts[2] if len(parts) > 2 else parts[1] if len(parts) > 1 else "Unknown Threat"
+            threat = parts[2] if len(parts) > 2 else "Unknown Threat"
             return True, threat, engine_type
+        
         return False, "Clean", None
 
     except Exception as e:
