@@ -1,12 +1,10 @@
 import base64
 import csv
 import hashlib
-import http.server
 import io
 import json
 import os
 import socket
-import socketserver
 import sys
 import threading
 import uuid
@@ -17,7 +15,7 @@ from dotenv import load_dotenv
 import asyncio 
 from aiohttp import web
 import time
-
+import sqlite3
 
 # --- CONFIGURATION ---
 current_dir    = os.path.dirname(os.path.abspath(__file__))
@@ -31,6 +29,7 @@ LOCAL_IP       = os.getenv("SHIELD_LOCAL_IP", "")
 HTTP_PORT      = int(os.getenv("SHIELD_HTTP_PORT", 8080))
 VT_API_KEY     = os.getenv("VIRUSTOTAL_API_KEY", "")
 
+DB_FILE        = os.path.join(current_dir, "hashshield.db")
 TEMP_DIR       = "/tmp"
 TEMPLATE_DIR   = os.path.join(current_dir, 'src', 'templates')
 DIST_DIR       = os.path.join(current_dir, 'dist')
@@ -38,16 +37,50 @@ CACHE_FILE     = os.path.join(current_dir, 'scan_cache.txt')
 
 WHITELIST_DIRS = ["C:\\Windows\\System32", "C:\\Windows\\SysWOW64"]
 
-# --- DATABASE MEMORY UNTUK DASHBOARD ---
-AGENTS_DB = {}
-THREATS_DB = []
-
 try:
     from src.shield_engine import download_clamav_hashes
 except ImportError:
     sys.path.append(os.path.join(os.path.dirname(__file__), 'src'))
     from shield_engine import download_clamav_hashes
 
+# --- SQLITE DATABASE INITIALIZATION ---
+def init_db():
+    conn = sqlite3.connect(DB_FILE)
+    c = conn.cursor()
+    c.execute('''CREATE TABLE IF NOT EXISTS agents (
+                    hostname TEXT PRIMARY KEY, os TEXT, localIp TEXT, tailscaleIp TEXT, 
+                    last_heartbeat REAL, scans INTEGER DEFAULT 0, threats INTEGER DEFAULT 0, status TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS threats (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, sev TEXT, name TEXT, family TEXT, 
+                    engine TEXT, path TEXT, agent TEXT, status TEXT, time TEXT, hash TEXT, desc TEXT, mitigation TEXT, vt TEXT)''')
+    c.execute('''CREATE TABLE IF NOT EXISTS scan_reports (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT, scan_date TEXT, 
+                    duration REAL, total_scanned INTEGER, infected_count INTEGER)''')
+    conn.commit()
+    conn.close()
+
+init_db()
+
+def run_query(query, params=(), fetch=False):
+    conn = sqlite3.connect(DB_FILE)
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    c.execute(query, params)
+    result = None
+    if fetch:
+        result = [dict(row) for row in c.fetchall()]
+    else:
+        conn.commit()
+    conn.close()
+    return result
+
+def log_threat_to_db(client_id, threat_name, engine, path, f_hash, sev="HIGH", desc="Detected by scanner."):
+    vt_url = f"https://www.virustotal.com/gui/file/{f_hash}" if f_hash and f_hash != "—" else ""
+    run_query("""
+        INSERT INTO threats (sev, name, family, engine, path, agent, status, time, hash, desc, mitigation, vt)
+        VALUES (?, ?, 'Malware Detection', ?, ?, ?, 'INFECTED', ?, ?, ?, 'Isolasi file segera.', ?)
+    """, (sev, threat_name, engine, path, client_id, datetime.now().strftime("%H:%M:%S"), f_hash, desc, vt_url))
+    # Menghapus penambahan threats akumulatif dari sini agar bisa di-handle di level deduplikasi
 
 # --- NETWORK HELPERS ---
 
@@ -75,52 +108,94 @@ def start_http_server(active_ip):
         print(f"[WARN] dist/ folder not found. HTTP server not started.")
         return
 
-    # 1. API Handlers
     async def api_get_agents(request):
-        current_time = time.time()
-        agent_list = []
-        for agent_id, data in AGENTS_DB.items():
-            # Jika 15 detik tidak ada kabar, anggap offline
-            if current_time - data['last_heartbeat'] > 15:
-                data['status'] = 'offline'
-            agent_list.append(data)
-        return web.json_response(agent_list)
+        agents = run_query("SELECT * FROM agents", fetch=True)
+        now = time.time()
+        for a in agents:
+            if now - a['last_heartbeat'] > 15:
+                a['status'] = 'offline'
+        return web.json_response(agents)
 
     async def api_get_threats(request):
-        # Kembalikan 50 ancaman terbaru (dibalik agar yang baru di atas)
-        return web.json_response(list(reversed(THREATS_DB))[:50])
+        # PERUBAHAN 1: Menyulap log mentah menjadi ancaman unik menggunakan GROUP BY hash
+        threats = run_query("SELECT * FROM threats GROUP BY hash ORDER BY id DESC LIMIT 1000", fetch=True)
+        return web.json_response(threats)
+
+    async def api_get_activity(request):
+        # Query SQLite untuk merangkum total file dan ancaman per hari (7 hari terakhir)
+        query = """
+            SELECT 
+                date(scan_date) as date_val,
+                SUM(total_scanned) as total,
+                SUM(infected_count) as infected
+            FROM scan_reports
+            WHERE date(scan_date) >= date('now', '-6 days')
+            GROUP BY date(scan_date)
+            ORDER BY date(scan_date) ASC
+        """
+        rows = run_query(query, fetch=True)
+        
+        labels = []
+        clean_data = []
+        threat_data = []
+        
+        for row in rows:
+            # Mengambil tanggal format MM-DD
+            labels.append(row['date_val'][5:]) 
+            
+            infected = row['infected'] if row['infected'] else 0
+            total = row['total'] if row['total'] else 0
+            clean = total - infected
+            
+            threat_data.append(infected)
+            clean_data.append(clean)
+            
+        return web.json_response({
+            "labels": labels,
+            "clean": clean_data,
+            "threats": threat_data
+        })
 
     async def api_heartbeat(request):
         try:
             data = await request.json()
-            hostname = data.get('hostname', 'Unknown')
-            AGENTS_DB[hostname] = {
-                "hostname": hostname,
-                "os": data.get('os', 'Windows Server'),
-                "status": "online",
-                "localIp": data.get('localIp', 'Unknown'),
-                "tailscaleIp": data.get('tailscaleIp', '—'),
-                "lastSeen": "Just now",
-                "last_heartbeat": time.time(),
-                "scans": data.get('scans', 0),
-                "threats": data.get('threats', 0)
-            }
+            h = data.get('hostname', 'Unknown')
+            run_query("""
+                INSERT INTO agents (hostname, os, localIp, tailscaleIp, last_heartbeat, status)
+                VALUES (?, ?, ?, ?, ?, 'online')
+                ON CONFLICT(hostname) DO UPDATE SET
+                os=excluded.os, localIp=excluded.localIp, tailscaleIp=excluded.tailscaleIp, 
+                last_heartbeat=excluded.last_heartbeat, status='online'
+            """, (h, data.get('os', ''), data.get('localIp', ''), data.get('tailscaleIp', ''), time.time()))
             return web.json_response({"status": "ok"})
+        except Exception as e:
+            return web.json_response({"error": str(e)}, status=400)
+            
+    async def api_event(request):
+        try:
+            t = await request.json()
+            run_query("""
+                INSERT INTO threats (sev, name, family, engine, path, agent, status, time, hash, desc, mitigation, vt)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """, (t.get('sev'), t.get('name'), t.get('family'), t.get('engine'), t.get('path'), 
+                  t.get('agent'), t.get('status'), t.get('time'), t.get('hash'), t.get('desc'), 
+                  t.get('mitigation'), t.get('vt')))
+            return web.json_response({"status": "logged"})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=400)
 
     async def index_handler(request):
         return web.FileResponse(os.path.join(DIST_DIR, 'dashboard.html'))
 
-    # 2. Setup Aplikasi & Routing
     app = web.Application()
     app.router.add_get('/api/agents', api_get_agents)
+    app.router.add_get('/api/activity', api_get_activity)
     app.router.add_get('/api/threats', api_get_threats)
     app.router.add_post('/api/heartbeat', api_heartbeat)
+    app.router.add_post('/api/event', api_event)
     app.router.add_get('/', index_handler)
     app.router.add_static('/', path=DIST_DIR, name='static')
 
-    # 3. Jalankan di Background Thread
     def run_server():
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -166,14 +241,13 @@ def is_system_protected(filepath):
     return any(filepath.startswith(path) for path in WHITELIST_DIRS)
 
 
-# --- VIRUSTOTAL INTEGRATION (PHASE 3) ---
+# --- VIRUSTOTAL INTEGRATION ---
 
 def check_virustotal_sync(file_sha256):
     if not VT_API_KEY:
         return None
     
     cache = {}
-    # 1. Read Cache
     if os.path.exists(CACHE_FILE):
         try:
             with open(CACHE_FILE, 'r', encoding='utf-8') as f:
@@ -203,7 +277,6 @@ def check_virustotal_sync(file_sha256):
                 return "Result from cache: malicious", "Cloud"
             return None
 
-    # 2. Query VirusTotal API
     url = f"https://www.virustotal.com/api/v3/files/{file_sha256}"
     req = urllib.request.Request(url, headers={"x-apikey": VT_API_KEY, "Accept": "application/json"})
     try:
@@ -216,7 +289,6 @@ def check_virustotal_sync(file_sha256):
             report_msg = f"Detected by {malicious_count} vendors on VirusTotal." if is_malicious else "Clean on VirusTotal."
             vt_url = f"https://www.virustotal.com/gui/file/{file_sha256}"
             
-            # Write to Cache
             try:
                 with open(CACHE_FILE, 'a', encoding='utf-8') as f:
                     f.write(f"{file_sha256}:{is_malicious}|{report_msg}|{vt_url}\n")
@@ -228,7 +300,7 @@ def check_virustotal_sync(file_sha256):
             return None
             
     except urllib.error.HTTPError as e:
-        if e.code == 404: # Hash not found, assume clean locally
+        if e.code == 404: 
             return None
     except Exception as e:
         print(f"[!] VT API Error in Daemon: {e}")
@@ -257,13 +329,11 @@ def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
         file_md5    = md5_hasher.hexdigest()
         file_sha256 = sha256_hasher.hexdigest()
 
-        # Phase 1: Local Hash
         if file_md5 in hash_db:
             return hash_db[file_md5], "HASH"
         if file_sha256 in hash_db:
             return hash_db[file_sha256], "HASH"
 
-        # Phase 2: Heuristic YARA
         if yara_engine:
             matches = yara_engine.match(filepath)
             if matches:
@@ -280,10 +350,9 @@ def scan_file_robust(filepath, hash_db, yara_engine, ndb_map):
 
                 return str(match.rule), "YARA"
 
-        # Phase 3: Cloud Intelligence (API VirusTotal)
         vt_result = check_virustotal_sync(file_sha256)
         if vt_result:
-            return vt_result[0], vt_result[1] # Returns (threat_message, "Cloud")
+            return vt_result[0], vt_result[1] 
 
     except Exception as e:
         print(f"[!] Engine Error while scanning {filepath}: {e}")
@@ -350,7 +419,6 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
             severity       = "INFORMATIONAL"
             severity_badge = "bg-hs-info text-white"
             
-            # --- Extract VT Link if present ---
             clean_threat = threat or ""
             vt_link = ""
             if "|" in clean_threat and "virustotal.com" in clean_threat:
@@ -358,7 +426,6 @@ def _generate_html(results, hostname, client_ip, system_info, scan_time,
                 clean_threat = parts[0]
                 vt_link = parts[1]
 
-            # Strip prefixes
             for prefix in ["DANGER! Shield Engine Detected: ", "DANGER! Locally detected by YARA rule: ", "DANGER! ", "[Cached] "]:
                 if clean_threat.startswith(prefix):
                     clean_threat = clean_threat[len(prefix):]
@@ -575,8 +642,23 @@ if __name__ == "__main__":
 
             req_type = data.get("type", "")
 
+            # MENGHAPUS LOGIKA SCANS = SCANS + 1 DARI SINI
+
             if req_type == "generate_report":
                 print(f"[*] [{client_identity}] Report request ({data.get('format', 'html')})")
+                
+                # PERUBAHAN 2: Menimpa (Overwrite) total_scanned dan infected ke SQLite saat scan selesai
+                total_scanned_now = len(data.get("results", []))
+                infected_now = sum(1 for r in data.get("results", []) if r["infected"])
+                
+                # Update agent stats
+                run_query("UPDATE agents SET scans = ?, threats = ? WHERE hostname = ?", 
+                          (total_scanned_now, infected_now, client_identity))
+                
+                # Simpan histori scan report
+                run_query("INSERT INTO scan_reports (agent, scan_date, duration, total_scanned, infected_count) VALUES (?, ?, ?, ?, ?)",
+                          (client_identity, datetime.now().strftime("%Y-%m-%d %H:%M:%S"), data.get("scan_duration", 0), total_scanned_now, infected_now))
+
                 content = generate_report(data)
                 conn.sendall(content.encode())
                 conn.close()
@@ -593,16 +675,24 @@ if __name__ == "__main__":
                 sha256_hash = data.get("sha256", "")
                 
                 if md5_hash in db_hashes:
+                    log_threat_to_db(client_identity, db_hashes[md5_hash], "HASH", "Fast-Scan (Handshake)", md5_hash, "CRITICAL", "Terdeteksi seketika pada Phase-1.")
                     conn.send(f"INFECTED:HASH:{db_hashes[md5_hash]}".encode())
                     conn.close()
                     continue
                 if sha256_hash in db_hashes:
+                    log_threat_to_db(client_identity, db_hashes[sha256_hash], "HASH", "Fast-Scan (Handshake)", sha256_hash, "CRITICAL", "Terdeteksi seketika pada Phase-1.")
                     conn.send(f"INFECTED:HASH:{db_hashes[sha256_hash]}".encode())
                     conn.close()
                     continue
                 
                 cached_res = check_global_cache(sha256_hash)
                 if cached_res:
+                    if cached_res.startswith("INFECTED"):
+                        parts = cached_res.split(":")
+                        eng = parts[1] if len(parts) > 1 else "Cloud"
+                        threat = parts[2] if len(parts) > 2 else "Unknown"
+                        sev = "HIGH" if eng == "YARA" else "MEDIUM"
+                        log_threat_to_db(client_identity, threat, eng, "Unknown (Hash Check)", sha256_hash, sev, "Terdeteksi via cache.")
                     conn.send(cached_res.encode())
                     conn.close()
                     continue
@@ -625,21 +715,8 @@ if __name__ == "__main__":
                 threat_name, engine_type = scan_result
                 print(f"[ALERT] [{client_identity}] Infected: {threat_name} ({engine_type})")
                 
-                # --- TAMBAHAN UNTUK DASHBOARD ---
-                THREATS_DB.append({
-                    "sev": "CRITICAL" if engine_type == "HASH" else "HIGH",
-                    "name": threat_name,
-                    "family": "Malware Detection",
-                    "engine": engine_type,
-                    "path": target_path,
-                    "agent": client_identity,
-                    "status": "INFECTED",
-                    "time": datetime.now().strftime("%H:%M:%S"),
-                    "hash": file_sha256 if file_sha256 else "—",
-                    "desc": "Terdeteksi secara real-time oleh HashShield Engine.",
-                    "mitigation": "Direkomendasikan untuk segera dikarantina.",
-                    "vt": f"https://www.virustotal.com/gui/file/{file_sha256}" if file_sha256 else ""
-                })
+                sev = "CRITICAL" if engine_type == "HASH" else "HIGH"
+                log_threat_to_db(client_identity, threat_name, engine_type, target_path, file_sha256, sev, "Deteksi mendalam via analisis payload.")
                 
                 if file_sha256 and engine_type != "Cloud": 
                     with open(CACHE_FILE, 'a', encoding='utf-8') as f:

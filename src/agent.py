@@ -375,14 +375,15 @@ def write_log(results, log_path, host, port):
             f.write(f"[{status}] {fp} | {detail}\n")
 
 # --- EDITED: HEARTBEAT WORKER ---
-def heartbeat_worker(daemon_ip="100.72.155.33", http_port=8080):
+def heartbeat_worker(daemon_ip, http_port=8080):
     url = f"http://{daemon_ip}:{http_port}/api/heartbeat"
     hostname = socket.gethostname()
     os_info = f"{platform.system()} {platform.release()}"
     
-    # 1. Deteksi IP Lokal
+    # 1. Deteksi IP Lokal (DENGAN TIMEOUT SAKTI 0.5 DETIK)
     try:
         s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.settimeout(0.5) 
         s.connect(("8.8.8.8", 80))
         local_ip = s.getsockname()[0]
         s.close()
@@ -392,7 +393,6 @@ def heartbeat_worker(daemon_ip="100.72.155.33", http_port=8080):
     # 2. Deteksi IP Tailscale
     tailscale_ip = "—"
     try:
-        # Penanganan khusus jika berjalan di Windows Server
         if platform.system() == "Windows":
             cmd = [r"C:\Program Files\Tailscale\tailscale.exe", "ip", "-4"]
         else:
@@ -412,12 +412,10 @@ def heartbeat_worker(daemon_ip="100.72.155.33", http_port=8080):
                 "os": os_info,
                 "localIp": local_ip,
                 "tailscaleIp": tailscale_ip,
-                "scans": 0, 
-                "threats": 0
             }
             requests.post(url, json=payload, timeout=3)
         except Exception:
-            pass # Abaikan jika gagal (misal daemon belum nyala)
+            pass # Abaikan jika gagal
         
         time.sleep(10) # Melapor setiap 10 detik
 
@@ -442,30 +440,22 @@ def main():
     port     = args.port
     token    = args.token
     log_path = Path.cwd() / "agent_log.txt"
-    
-    # --- EDITED: START HEARTBEAT BACKGROUND ---
-    # Thread berjalan di background. Begitu user mematikan CMD, thread ikut mati.
-    h_thread = threading.Thread(target=heartbeat_worker, daemon=True)
-    h_thread.start()
 
     print(f"\n{C_YELLOW}{C_BRIGHT}  HashShield Agent{C_RESET}  "
           f"{C_GREY}→ Mencari rute jaringan terbaik...{C_RESET}\n")
 
     # --- SMART CONNECTION ROUTING ---
     target_ips = []
-    
-    # Jika user memaksa menggunakan flag --server spesifik di terminal
     if args.server != DEFAULT_HOST and args.server:
         target_ips.append(("Manual Flag", args.server))
     else:
-        # Jika menggunakan default, kita susun hierarki pencarian (Lokal dulu, baru Tailscale)
         if LOCAL_IP: target_ips.append(("Lokal", LOCAL_IP))
         if TAILSCALE_IP: target_ips.append(("Tailscale", TAILSCALE_IP))
 
     host = None
     for route_name, ip in target_ips:
         print(f"  [*] Mencoba koneksi {route_name} ({ip}:{port}) ... ", end="")
-        if check_daemon(ip, port, timeout=1.5): # Timeout 1.5 detik agar cepat failover
+        if check_daemon(ip, port, timeout=1.5):
             print(f"{C_GREEN}SUKSES{C_RESET}")
             host = ip
             break
@@ -476,6 +466,10 @@ def main():
         print(f"\n  {C_RED}[ERROR]{C_RESET} Cannot reach daemon at any known IP addresses.")
         print(f"  {C_GREY}Pastikan Daemon Kali Linux menyala dan terhubung ke Jaringan / Tailscale.{C_RESET}\n")
         return
+
+    # --- EDITED: START HEARTBEAT THREAD (Setelah Host Terverifikasi) ---
+    h_thread = threading.Thread(target=heartbeat_worker, args=(host, 8080), daemon=True)
+    h_thread.start()
 
     print(f"\n  {C_GREEN}[+] Daemon reachable via {host}. Starting scan...{C_RESET}\n")
     print(f"{'─' * 55}")
@@ -517,7 +511,6 @@ def main():
             print(f"  {C_GREEN}[+] Report saved → {output_path}{C_RESET}\n")
         else:
             print(f"  {C_RED}[!] Report generation failed.{C_RESET}\n")
-
 
 if __name__ == "__main__":
     main()
