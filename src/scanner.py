@@ -83,17 +83,69 @@ if not API_KEY:
 # 2. HELPER FUNCTIONS
 # =======================================================
 def print_banner():
-    banner = f"""{C_YELLOW}{C_BRIGHT}
-  _   _           _     _____ _     _      _     _ 
- | | | | __ _ ___| |__ / ____| |__ (_) ___| | __| |
- | |_| |/ _` / __| '_ \\___ \\| '_ \\| |/ _ \\ |/ _` |
- |  _  | (_| \\__ \\ | | |___) | | | | |  __/ | (_| |
- |_| |_|\\__,_|___/_| |_|_____/|_| |_|_|\\___|_|\\__,_|
-                                                     
-    {C_RESET}{C_GREY}[ {C_YELLOW}HashShield v2.0{C_GREY} | {C_YELLOW}Hybrid Antivirus Engine{C_GREY} ]{C_RESET}
-    {C_GREY}[ {C_YELLOW}Author: Dion{C_GREY}    | {C_YELLOW}Skripsi Project{C_GREY}         ]{C_RESET}
-    """
-    print(textwrap.dedent(banner))
+    Y = f"{C_YELLOW}{C_BRIGHT}"  # bright yellow
+    G = C_GREY                   # dim grey
+    R = C_RESET                  # reset
+
+    art = [
+        r"  _    _           _      _____ _     _      _     _",
+        r" | |  | |         | |    / ____| |   (_)    | |   | |",
+        r" | |__| | __ _ ___| |__ | (___ | |__  _  ___| | __| |",
+        r" |  __  |/ _` / __| '_ \ \___ \| '_ \| |/ _ \ |/ _` |",
+        r" | |  | | (_| \__ \ | | |____) | | | | |  __/ | (_| |",
+        r" |_|  |_|\__,_|___/_| |_|_____/|_| |_|_|\___|_|\__,_|",
+    ]
+
+    W = max(len(l) for l in art) + 4  # inner box width (art + 2 left + 2 right padding)
+
+    top = f"{Y}╔{'═' * W}╗{R}"
+    div = f"{Y}╠{'═' * W}╣{R}"
+    bot = f"{Y}╚{'═' * W}╝{R}"
+
+    def blank():
+        return f"{Y}║{R}{' ' * W}{Y}║{R}"
+
+    def art_row(line):
+        pad = W - 2 - len(line)
+        return f"{Y}║{R}  {Y}{line}{R}{' ' * pad}{Y}║{R}"
+
+    def centered_row(vis, col=None):
+        """Center a string within the box. vis = plain text, col = colored version."""
+        col = col or f"{G}{vis}{R}"
+        total_pad = W - len(vis)
+        lpad = total_pad // 2
+        rpad = total_pad - lpad
+        return f"{Y}║{R}{' ' * lpad}{col}{' ' * rpad}{Y}║{R}"
+
+    def info_row(vis, col):
+        """Left-padded info row with 2-space margin."""
+        pad = W - 2 - len(vis)
+        return f"{Y}║{R}  {col}{' ' * pad}{Y}║{R}"
+
+    # Subtitle (centered, inside the art section)
+    sub_vis = "[ Hybrid EDR  ·  Multi-Agent Ready ]"
+    sub_col = f"{G}[ {Y}Hybrid EDR{G}  ·  {Y}Multi-Agent Ready{G} ]{R}"
+
+    # Info rows (two columns separated by │)
+    r1_vis = "version  v2.0     │  author   Dion"
+    r1_col = f"{G}version  {Y}v2.0{R}     {G}│  author   {Y}Dion{R}"
+
+    r2_vis = "python   3.8+     │  engine   YARA + ClamAV"
+    r2_col = f"{G}python   {Y}3.8+{R}     {G}│  engine   {Y}YARA + ClamAV{R}"
+
+    print()
+    print(top)
+    print(blank())
+    for line in art:
+        print(art_row(line))
+    print(blank())
+    print(centered_row(sub_vis, sub_col))
+    print(blank())
+    print(div)
+    print(info_row(r1_vis, r1_col))
+    print(info_row(r2_vis, r2_col))
+    print(bot)
+    print()
 
 def load_cache():
     cache = {}

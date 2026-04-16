@@ -1,0 +1,2339 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>HashShield v2.0 | Executive Security Report</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+    :root { 
+        --hs-dark: #1a1c1e; --hs-gold: #ffc107; 
+        --hs-critical: #c0392b; --hs-high: #e67e22; 
+        --hs-medium: #f1c40f; --hs-info: #27ae60;
+        --hs-remediated: #8e44ad;
+    }
+    
+    .bg-hs-critical    { background-color: var(--hs-critical)   !important; color: white !important; }
+    .bg-hs-high        { background-color: var(--hs-high)       !important; color: white !important; }
+    .bg-hs-medium      { background-color: var(--hs-medium)     !important; color: black !important; }
+    .bg-hs-info        { background-color: var(--hs-info)       !important; color: white !important; }
+    .bg-hs-remediated  { background-color: var(--hs-remediated) !important; color: white !important; }
+    .bg-hs-deleted     { background-color: #2c3e50              !important; color: white !important; }
+
+    body { background-color: #f4f7fa; font-family: 'Segoe UI', system-ui, sans-serif; color: #333; }
+    .hero-section { background: var(--hs-dark); color: white; padding: 40px 0; border-bottom: 5px solid var(--hs-gold); }
+    .status-ribbon { background: #ffffff; padding: 12px 0; font-size: 0.85rem; border-bottom: 1px solid #dee2e6; }
+    .pulse-card { background: white; border-radius: 12px; padding: 25px; box-shadow: 0 4px 20px rgba(0,0,0,0.05); height: 100%; border: 1px solid rgba(0,0,0,0.03); margin-bottom: 20px; }
+    
+    .metric-box { 
+        background: #f8f9fa; 
+        border-radius: 8px; 
+        padding: 15px; 
+        border-left: 4px solid var(--hs-dark); 
+        transition: all 0.3s ease; 
+    }
+    .metric-box:hover { 
+        transform: translateY(-5px); 
+        box-shadow: 0 6px 15px rgba(0,0,0,0.1); 
+        background: #ffffff;
+    }
+    .metric-value { font-size: 1.4rem; font-weight: 800; color: var(--hs-dark); }
+    .metric-label { font-size: 0.7rem; color: #7f8c8d; text-transform: uppercase; font-weight: bold; }
+    .chart-container { position: relative; height: 350px; width: 100%; }
+
+    .legend-dot {
+        height: 12px;
+        width: 12px;
+        border-radius: 50%;
+        display: inline-block;
+        margin-right: 6px;
+        vertical-align: middle;
+        border: 1px solid rgba(0,0,0,0.1);
+    }
+    .table-legend span {
+        display: flex;
+        align-items: center;
+        font-size: 0.85rem;
+        font-weight: 500;
+    }
+
+    /* Sortable table headers */
+    .sortable {
+        cursor: pointer;
+        user-select: none;
+        white-space: nowrap;
+    }
+    .sortable:hover { background-color: #3d4045 !important; }
+    .sortable::after {
+        content: ' ⇅';
+        font-size: 0.75rem;
+        opacity: 0.6;
+    }
+    .sortable.asc::after  { content: ' ↑'; opacity: 1; }
+    .sortable.desc::after { content: ' ↓'; opacity: 1; }
+
+    @media print {
+        @page { size: A4; margin: 15mm 10mm 15mm 10mm; }
+        body { background-color: white !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        .no-print, .btn-export, #tableSearch, .search-container { display: none !important; }
+        .container { width: 100% !important; max-width: none !important; padding: 0 !important; margin: 0 !important; }
+        .pulse-card { box-shadow: none !important; border: 1px solid #ddd !important; break-inside: avoid; page-break-inside: avoid; margin-bottom: 30px !important; }
+        .hero-section { padding: 20px 0 !important; border-bottom: 3px solid var(--hs-gold) !important; }
+        .table-responsive { overflow: visible !important; }
+        table { table-layout: fixed; width: 100% !important; font-size: 0.8rem; }
+        td, th { word-wrap: break-word; }
+        .badge { border: 1px solid #ccc !important; }
+    }
+</style>
+</head>
+<body>
+
+    <div class="hero-section text-center no-print">
+        <div class="container position-relative">
+            <div class="position-absolute top-0 end-0">
+                <button onclick="window.print()" class="btn btn-outline-warning btn-sm fw-bold px-3 btn-export">
+                    📄 Export to PDF
+                </button>
+            </div>
+            <h1 class="display-5 fw-bold">🛡️ HashShield <span style="color: var(--hs-gold)">v2.0</span></h1>
+            <p class="lead opacity-75 mb-0">Hybrid Malware Detection & Remediation System</p>
+        </div>
+    </div>
+
+    <div class="status-ribbon">
+        <div class="container d-flex justify-content-between align-items-center">
+            <div>
+                <strong>Client Identity:</strong> 
+                <span class="badge bg-dark ms-1">127.0.1.1</span> 
+                <span class="text-muted">(Not-A-Bot)</span>
+            </div>
+            <div><strong>Scan Time:</strong> 2026-04-16 14:00:08</div>
+            <div><strong>Status:</strong> <span class="text-success fw-bold">● Engine Online</span></div>
+        </div>
+    </div>
+
+    <div class="container mt-4 pb-5">
+        <div class="row g-4 mb-4">
+            <div class="col-lg-7">
+                <div class="pulse-card">
+                    <h5 class="fw-bold mb-3 text-center">Threat Distribution Analysis</h5>
+                    <div class="chart-container">
+                        <canvas id="threatChart"></canvas>
+                    </div>
+                </div>
+            </div>
+
+            <div class="col-lg-5">
+                <div class="pulse-card d-flex flex-column justify-content-between">
+                    <div>
+                        <h5 class="fw-bold mb-4">Security Pulse</h5>
+                        <div class="row g-3">
+                            <div class="col-6"><div class="metric-box"><div class="metric-label">Scanned</div><div class="metric-value">145</div></div></div>
+                            <div class="col-6"><div class="metric-box" style="border-left-color: var(--hs-critical);"><div class="metric-label">Blocked</div><div class="metric-value" style="color: var(--hs-critical);">135</div></div></div>
+                            <div class="col-6"><div class="metric-box"><div class="metric-label">Duration</div><div class="metric-value">5.35s</div></div></div>
+                            <div class="col-6"><div class="metric-box"><div class="metric-label">Throughput</div><div class="metric-value">27.1<small> f/s</small></div></div></div>
+                        </div>
+                    </div>
+                    <div class="mt-4 p-3 rounded" style="background: #fff8e1; border-left: 4px solid var(--hs-gold);">
+                        <small class="fw-bold d-block mb-1">🛡️ Remediation Status:</small>
+                        <p class="small text-muted mb-0">Semua ancaman telah dipindahkan otomatis ke <strong>Karantina No-Execute</strong>.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pulse-card">
+            <div class="d-flex justify-content-between align-items-center mb-4">
+                <div>
+                    <h5 class="fw-bold m-0 mb-1">Detailed Forensic Evidence</h5>
+                    <div class="table-legend d-flex gap-3 flex-wrap">
+                        <span><span class="legend-dot bg-hs-critical"></span>Critical (Hash)</span>
+                        <span><span class="legend-dot bg-hs-high"></span>High (YARA)</span>
+                        <span><span class="legend-dot bg-hs-medium"></span>Medium (Cloud)</span>
+                        <span><span class="legend-dot bg-hs-remediated"></span>Quarantined</span>
+                        <span><span class="legend-dot bg-hs-deleted"></span>Deleted</span>
+                        <span><span class="legend-dot bg-hs-info"></span>Informational (Clean)</span>
+                    </div>
+                </div>
+                <div class="search-container">
+                    <input type="text" id="tableSearch" class="form-control form-control-sm" placeholder="Search findings...">
+                </div>
+            </div>
+            
+            <div class="table-responsive">
+                <table class="table table-hover align-middle border" id="mainTable">
+                    <thead class="table-dark">
+                        <tr>
+                            <th class="sortable" data-col="0">Status</th>
+                            <th class="sortable" data-col="1">Severity</th>
+                            <th class="sortable" data-col="2">Origin PC</th>
+                            <th>File Path & Name</th>
+                            <th class="sortable" data-col="4">Engine</th>
+                            <th>Threat Identification</th>
+                        </tr>
+                    </thead>
+                    <tbody id="reportTable">
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/38513.txt">test_dataset/38513.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinTrojanAgent36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/14482.py">test_dataset/14482.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinExploitAlphaUpper1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/SharpDX.exe">test_dataset/SharpDX.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Sharpdx
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Mono.Cecil.Mdb.exe">test_dataset/Mono.Cecil.Mdb.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.MonoCecilMdb
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/plink.exe">test_dataset/plink.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Plink
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/21376.html">test_dataset/21376.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinExploitCodebase1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Newtonsoft.Json.exe">test_dataset/Newtonsoft.Json.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.NewtonsoftJson
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/17783.pl">test_dataset/17783.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinExploitAlphaUpper1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/jew.elf">test_dataset/jew.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.Jew
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/21370.c">test_dataset/21370.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinTrojanAgent36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/17511.pl">test_dataset/17511.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinExploitAlphaUpper1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/9802.html">test_dataset/9802.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinTrojanCve200935182
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/bettercat.exe">test_dataset/bettercat.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Bettercat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/16264.pl">test_dataset/16264.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinExploitAlphaUpper1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/12834.py">test_dataset/12834.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinExploitAlphaUpper1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Mono.Cecil.Rocks.exe">test_dataset/Mono.Cecil.Rocks.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.MonoCecilRocks
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/17144.pl">test_dataset/17144.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinExploitAlphaUpper1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Linux.Infostealer.Berbew.elf">test_dataset/Linux.Infostealer.Berbew.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.LinuxInfostealerBerbew
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/base (5).apk">test_dataset/base (5).apk</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Android.Malware.Base5
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/1409.pl">test_dataset/1409.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinTrojanAgent36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/radmin.exe">test_dataset/radmin.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Radmin
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/ssf.exe">test_dataset/ssf.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ssf
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/点击安装简体中文语言包.exe">test_dataset/点击安装简体中文语言包.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Malgent
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Mono.Cecil.exe">test_dataset/Mono.Cecil.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.MonoCecil
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/exe2bat.exe">test_dataset/exe2bat.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Exe2Bat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/20838.c">test_dataset/20838.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinTrojanAgent36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/11628.pl">test_dataset/11628.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinTrojanAgent36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/enum.exe">test_dataset/enum.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Enum
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/20266.txt">test_dataset/20266.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinTrojanJs1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Cmdline.dll">test_dataset/Cmdline.dll</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.WinWormStration617
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/New Order 96342#.exe">test_dataset/New Order 96342#.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.NewOrder96342
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Linux.Trojan.Gafgyt.elf">test_dataset/Linux.Trojan.Gafgyt.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.LinuxTrojanGafgyt
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/GhostRAT.exe">test_dataset/GhostRAT.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ghostrat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/sqldict.exe">test_dataset/sqldict.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Sqldict
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/nc.exe">test_dataset/nc.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Nc
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/client.exe">test_dataset/client.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Client
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/register dll.exe">test_dataset/register dll.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.RegisterDll
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/pstgdump.exe">test_dataset/pstgdump.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Pstgdump
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Bandook 1.36.exe">test_dataset/Bandook 1.36.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Bandook136
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Standoff.apk">test_dataset/Standoff.apk</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Android.Malware.Standoff
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/ncat.exe">test_dataset/ncat.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ncat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/whoami.exe">test_dataset/whoami.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Whoami
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Guna.UI2.exe">test_dataset/Guna.UI2.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.GunaUi2
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Gma.System.MouseKeyHook.exe">test_dataset/Gma.System.MouseKeyHook.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.GmaSystemMousekeyhook
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/chisel_amd64.zip.exe">test_dataset/chisel_amd64.zip.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.ChiselAmd64Zip
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/vncviewer.exe">test_dataset/vncviewer.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Vncviewer
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Acid.exe">test_dataset/Acid.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Acid
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/hyperion.exe">test_dataset/hyperion.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Hyperion
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Fport.exe">test_dataset/Fport.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Fport
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Ordini.exe">test_dataset/Ordini.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ordini
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Questionario BNL.apk">test_dataset/Questionario BNL.apk</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Android.Malware.QuestionarioBnl
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Babylon-RAT.exe">test_dataset/Babylon-RAT.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.BabylonRat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/BlueOne_Cracked and Unpacked.exe">test_dataset/BlueOne_Cracked and Unpacked.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.BlueoneCrackedAndUnpacked
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/BlueOne.Common.Tests.elf">test_dataset/BlueOne.Common.Tests.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.BlueoneCommonTests
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/chisel_arm64.zip.exe">test_dataset/chisel_arm64.zip.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.ChiselArm64Zip
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Vestris.ResourceLib.exe">test_dataset/Vestris.ResourceLib.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.VestrisResourcelib
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/pconfig.exe">test_dataset/pconfig.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Pconfig
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/mbenum.exe">test_dataset/mbenum.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Mbenum
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Aquates Rat.exe">test_dataset/Aquates Rat.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.AquatesRat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/upx.exe">test_dataset/upx.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Upx
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/fgdump.exe">test_dataset/fgdump.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Fgdump
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/file.exe">test_dataset/file.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.File
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/protobuf-net.exe">test_dataset/protobuf-net.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.ProtobufNet
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Mono.Cecil.Pdb.exe">test_dataset/Mono.Cecil.Pdb.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.MonoCecilPdb
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/ratonClient.exe">test_dataset/ratonClient.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ratonclient
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/0upmpsl.elf">test_dataset/0upmpsl.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.0Upmpsl
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/asyncrat.exe">test_dataset/asyncrat.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Asyncrat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/AsbMay.exe">test_dataset/AsbMay.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Asbmay
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/ssfd.exe">test_dataset/ssfd.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ssfd
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/BlueOne.Common.elf">test_dataset/BlueOne.Common.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.BlueoneCommon
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/BouncyCastle.Crypto.elf">test_dataset/BouncyCastle.Crypto.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.BouncycastleCrypto
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/SecuriteInfo.com.W64.Agent.exe">test_dataset/SecuriteInfo.com.W64.Agent.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.SecuriteinfoComW64Agent
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/SharpDX.Direct3D11.exe">test_dataset/SharpDX.Direct3D11.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.SharpdxDirect3D11
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/SharpDX.DXGI.exe">test_dataset/SharpDX.DXGI.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.SharpdxDxgi
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Stub.exe">test_dataset/Stub.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Stub
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/BlackCore.exe">test_dataset/BlackCore.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Blackcore
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/GHOSTPULSE.exe">test_dataset/GHOSTPULSE.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ghostpulse
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/ssfcp.exe">test_dataset/ssfcp.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.Ssfcp
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/upx-ssf.exe">test_dataset/upx-ssf.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.UpxSsf
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/0uparm6.elf">test_dataset/0uparm6.elf</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Linux.Malware.0Uparm6
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-critical text-white w-100" style="font-size: 0.7rem; font-weight: bold;">CRITICAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/Open.Nat.exe">test_dataset/Open.Nat.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Malware.OpenNat
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/17166.py">test_dataset/17166.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/12663.html">test_dataset/12663.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/869.c">test_dataset/869.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/20814.c">test_dataset/20814.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/14519.html">test_dataset/14519.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Html.Exploit.IFrameBOF-9
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/28235.c">test_dataset/28235.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/11540.pl">test_dataset/11540.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/34478.html">test_dataset/34478.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/16162.pl">test_dataset/16162.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/15305.pl">test_dataset/15305.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/15985.c">test_dataset/15985.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/15919.pl">test_dataset/15919.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/15628.py">test_dataset/15628.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/1520.pl">test_dataset/1520.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Html.Trojan.Downloader-95
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/1719.txt">test_dataset/1719.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/18981.txt">test_dataset/18981.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/11180.pl">test_dataset/11180.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/35686.pl">test_dataset/35686.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/3784.c">test_dataset/3784.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/11872.py">test_dataset/11872.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/37325.txt">test_dataset/37325.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/861.c">test_dataset/861.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/18140.c">test_dataset/18140.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/805.c">test_dataset/805.c</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/BOOKMARK.DLL">test_dataset/BOOKMARK.DLL</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Worm.Stration-617
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/37977.py">test_dataset/37977.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/38199.txt">test_dataset/38199.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.CVE_2015_0078-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/43458.py">test_dataset/43458.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.MSShellcode-88
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/18818.py">test_dataset/18818.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Java.Trojan.MSShellcode-19
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/1505.html">test_dataset/1505.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Html.Trojan.Downloader-95
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/15532.py">test_dataset/15532.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Unicode_Mixed-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/36327.txt">test_dataset/36327.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/17634.pl">test_dataset/17634.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/OLLYDBG.EXE">test_dataset/OLLYDBG.EXE</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Peed-426
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/9108.py">test_dataset/9108.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-35607
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/3871.html">test_dataset/3871.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/4438.cpp">test_dataset/4438.cpp</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/32799.html">test_dataset/32799.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/32381.js">test_dataset/32381.js</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/14257.py">test_dataset/14257.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/12803.html">test_dataset/12803.html</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/1408.pl">test_dataset/1408.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/1508.pl">test_dataset/1508.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.R57-2
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/38147.pl">test_dataset/38147.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Unicode_Mixed-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/15598.pl">test_dataset/15598.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/19228.pl">test_dataset/19228.pl</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/24129.bat">test_dataset/24129.bat</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Omni-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/35202.py">test_dataset/35202.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/4664.txt">test_dataset/4664.txt</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Trojan.Agent-36902
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-high text-white w-100" style="font-size: 0.7rem; font-weight: bold;">HIGH</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/11877.py">test_dataset/11877.py</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Shield Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Win.Exploit.Alpha_Upper-1
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-medium text-dark w-100" style="font-size: 0.7rem; font-weight: bold;">MEDIUM</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/AXC102.exe">test_dataset/AXC102.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Detected by 37 vendors on VirusTotal.
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-medium text-dark w-100" style="font-size: 0.7rem; font-weight: bold;">MEDIUM</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/gaomon.exe">test_dataset/gaomon.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Detected by 33 vendors on VirusTotal.
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-medium text-dark w-100" style="font-size: 0.7rem; font-weight: bold;">MEDIUM</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/ndog.exe">test_dataset/ndog.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Detected by 36 vendors on VirusTotal.
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-danger w-100">INFECTED</span></td>
+                            <td><span class="badge bg-hs-medium text-dark w-100" style="font-size: 0.7rem; font-weight: bold;">MEDIUM</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/weepingdemon.exe">test_dataset/weepingdemon.exe</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-danger fw-bold small">
+    Detected by 35 vendors on VirusTotal.
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_2.log">test_dataset/system_log_clean_2.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_0.log">test_dataset/system_log_clean_0.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_4.log">test_dataset/system_log_clean_4.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_1.log">test_dataset/system_log_clean_1.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_5.log">test_dataset/system_log_clean_5.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_8.log">test_dataset/system_log_clean_8.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_7.log">test_dataset/system_log_clean_7.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_3.log">test_dataset/system_log_clean_3.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_6.log">test_dataset/system_log_clean_6.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                        <tr>
+                            <td><span class="badge bg-success w-100">CLEAN</span></td>
+                            <td><span class="badge bg-hs-info text-white w-100" style="font-size: 0.7rem; font-weight: bold;">INFORMATIONAL</span></td>
+                            <td><small class="fw-bold text-muted">Not-A-Bot</small></td>
+                            <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">
+                                <code class="small text-dark" title="test_dataset/system_log_clean_9.log">test_dataset/system_log_clean_9.log</code>
+                            </td>
+                            <td><span class="badge bg-light text-dark border">Cloud Engine</span></td>
+                            <td class="text-success small">
+    Clean
+    
+</td>
+                        </tr>
+                        
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // --- SEARCH ---
+        document.getElementById('tableSearch').addEventListener('keyup', function() {
+            const val = this.value.toLowerCase();
+            document.querySelectorAll('#reportTable tr').forEach(row => {
+                row.style.display = row.innerText.toLowerCase().includes(val) ? '' : 'none';
+            });
+        });
+
+        // --- SORTING ---
+        const sortState = {};
+        document.querySelectorAll('.sortable').forEach(th => {
+            th.addEventListener('click', function() {
+                const col     = parseInt(this.dataset.col);
+                const table   = document.getElementById('mainTable');
+                const tbody   = document.getElementById('reportTable');
+                const rows    = Array.from(tbody.querySelectorAll('tr'));
+                const isAsc   = sortState[col] !== 'asc';
+                sortState[col] = isAsc ? 'asc' : 'desc';
+
+                document.querySelectorAll('.sortable').forEach(h => {
+                    h.classList.remove('asc', 'desc');
+                });
+                this.classList.add(isAsc ? 'asc' : 'desc');
+
+                rows.sort((a, b) => {
+                    const aText = a.cells[col]?.innerText.trim().toLowerCase() || '';
+                    const bText = b.cells[col]?.innerText.trim().toLowerCase() || '';
+                    return isAsc ? aText.localeCompare(bText) : bText.localeCompare(aText);
+                });
+
+                rows.forEach(row => tbody.appendChild(row));
+            });
+        });
+
+        // --- CHART DATA ---
+        const rawData = {"Clean": 10, "Cloud": 4, "Hash": 81, "Heuristic": 50};
+        const totalThreats = rawData.Hash + rawData.Heuristic + rawData.Cloud;
+
+        const chartConfig = {
+            "Hash":      { label: "Known Malware",        color: "#c0392b" },
+            "Heuristic": { label: "Suspicious Patterns",  color: "#e67e22" },
+            "Cloud":     { label: "Cloud Verification",   color: "#f1c40f" },
+            "Clean":     { label: "Verified Safe",        color: "#27ae60" }
+        };
+
+        const labels = [], dataValues = [], backgroundColors = [];
+        for (const [key, value] of Object.entries(rawData)) {
+            if (value > 0) {
+                labels.push(chartConfig[key].label);
+                dataValues.push(value);
+                backgroundColors.push(chartConfig[key].color);
+            }
+        }
+
+        const centerTextPlugin = {
+            id: 'centerText',
+            afterDraw: function(chart) {
+                const { ctx } = chart;
+                ctx.save();
+                const meta = chart.getDatasetMeta(0);
+                if (!meta.data[0]) return;
+                const centerX = meta.data[0].x;
+                const centerY = meta.data[0].y;
+                ctx.textAlign = 'center';
+                ctx.textBaseline = 'middle';
+                ctx.font = "bold 11px 'Segoe UI'";
+                ctx.fillStyle = "#7f8c8d";
+                ctx.fillText("SECURITY STATUS", centerX, centerY - 28);
+                ctx.font = "bold 28px 'Segoe UI'";
+                ctx.fillStyle = "#c0392b";
+                ctx.fillText(totalThreats + " THREATS", centerX, centerY);
+                ctx.font = "bold 14px 'Segoe UI'";
+                ctx.fillStyle = "#c0392b";
+                ctx.fillText("BLOCKED", centerX, centerY + 28);
+                ctx.restore();
+            }
+        };
+
+        const ctx = document.getElementById('threatChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'doughnut',
+            data: {
+                labels: labels,
+                datasets: [{
+                    data: dataValues,
+                    backgroundColor: backgroundColors,
+                    hoverOffset: 12,
+                    borderRadius: 8,
+                    spacing: 4,
+                    borderWidth: 2,
+                    borderColor: '#ffffff'
+                }]
+            },
+            plugins: [centerTextPlugin],
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                cutout: '72%',
+                animation: {
+                    duration: 2000,
+                    easing: 'easeOutQuart',
+                    animateRotate: true,
+                    animateScale: true
+                },
+                plugins: {
+                    legend: { 
+                        position: 'bottom', 
+                        labels: { 
+                            padding: 20, 
+                            font: { weight: 'bold', size: 12 },
+                            usePointStyle: true
+                        } 
+                    },
+                    tooltip: { 
+                        backgroundColor: 'rgba(26, 28, 30, 0.9)', 
+                        padding: 12,
+                        titleFont: { size: 14 },
+                        bodyFont: { size: 13 }
+                    }
+                }
+            }
+        });
+    </script>
+</body>
+</html>
