@@ -40,7 +40,7 @@
 > Real-time Security Overview: active threats, 7-day scan activity chart, detection engine breakdown (Hash DB / YARA / Cloud), and recent detections with severity labels.
 
 ### Daemon Startup
-![HashShield Daemon](./img/daemon-preview.png)
+![HashShield Daemon](./img/daemon-preview.png?v=2)
 > Daemon boot sequence: token auth enabled, 92k YARA patterns compiled, 2.5M hash signatures loaded, HTTP dashboard and TCP socket online.
 
 ### Executive HTML Report
