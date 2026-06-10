@@ -4,6 +4,7 @@ import hashlib
 import io
 import json
 import os
+import secrets
 import socket
 import sys
 import threading
@@ -12,10 +13,13 @@ import urllib.request
 import urllib.error
 from datetime import datetime
 from dotenv import load_dotenv
-import asyncio 
+import asyncio
 from aiohttp import web
 import time
 import sqlite3
+
+# Thread-safe lock untuk semua SQLite writes
+_db_lock = threading.Lock()
 
 # --- CONFIGURATION ---
 current_dir    = os.path.dirname(os.path.abspath(__file__))
@@ -45,33 +49,60 @@ except ImportError:
 
 # --- SQLITE DATABASE INITIALIZATION ---
 def init_db():
-    conn = sqlite3.connect(DB_FILE)
-    c = conn.cursor()
-    c.execute('''CREATE TABLE IF NOT EXISTS agents (
-                    hostname TEXT PRIMARY KEY, os TEXT, localIp TEXT, tailscaleIp TEXT, 
-                    last_heartbeat REAL, scans INTEGER DEFAULT 0, threats INTEGER DEFAULT 0, status TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS threats (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, sev TEXT, name TEXT, family TEXT, 
-                    engine TEXT, path TEXT, agent TEXT, status TEXT, time TEXT, hash TEXT, desc TEXT, mitigation TEXT, vt TEXT)''')
-    c.execute('''CREATE TABLE IF NOT EXISTS scan_reports (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT, scan_date TEXT, 
-                    duration REAL, total_scanned INTEGER, infected_count INTEGER)''')
-    conn.commit()
-    conn.close()
+    with _db_lock:
+        conn = sqlite3.connect(DB_FILE)
+        c = conn.cursor()
+        c.execute('''CREATE TABLE IF NOT EXISTS agents (
+                        hostname TEXT PRIMARY KEY, os TEXT, localIp TEXT, tailscaleIp TEXT,
+                        last_heartbeat REAL, scans INTEGER DEFAULT 0, threats INTEGER DEFAULT 0, status TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS threats (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, sev TEXT, name TEXT, family TEXT,
+                        engine TEXT, path TEXT, agent TEXT, status TEXT, time TEXT, hash TEXT,
+                        desc TEXT, mitigation TEXT, vt TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS scan_reports (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT, agent TEXT, scan_date TEXT,
+                        duration REAL, total_scanned INTEGER, infected_count INTEGER)''')
+
+        # Tabel auth
+        c.execute('''CREATE TABLE IF NOT EXISTS users (
+                        id       INTEGER PRIMARY KEY AUTOINCREMENT,
+                        username TEXT UNIQUE NOT NULL,
+                        password_hash TEXT NOT NULL,
+                        created_at TEXT)''')
+        c.execute('''CREATE TABLE IF NOT EXISTS sessions (
+                        token      TEXT PRIMARY KEY,
+                        username   TEXT NOT NULL,
+                        expires_at REAL NOT NULL)''')
+
+        # Buat default admin jika belum ada user sama sekali
+        user_count = c.execute("SELECT COUNT(*) FROM users").fetchone()[0]
+        if user_count == 0:
+            default_user = os.getenv("DASHBOARD_USER", "admin")
+            default_pass = os.getenv("DASHBOARD_PASS", "hashshield2025")
+            salt      = secrets.token_hex(16)
+            pass_hash = hashlib.sha256(f"{salt}:{default_pass}".encode()).hexdigest()
+            c.execute("INSERT INTO users (username, password_hash, created_at) VALUES (?, ?, ?)",
+                      (default_user, f"{salt}:{pass_hash}", datetime.now().strftime("%Y-%m-%d %H:%M:%S")))
+            print(f"[AUTH] Default admin dibuat → user: '{default_user}' | pass: '{default_pass}'")
+            print(f"[AUTH] Ganti password via DASHBOARD_USER / DASHBOARD_PASS di src/.env")
+
+        conn.commit()
+        conn.close()
 
 init_db()
 
 def run_query(query, params=(), fetch=False):
-    conn = sqlite3.connect(DB_FILE)
-    conn.row_factory = sqlite3.Row
-    c = conn.cursor()
-    c.execute(query, params)
-    result = None
-    if fetch:
-        result = [dict(row) for row in c.fetchall()]
-    else:
-        conn.commit()
-    conn.close()
+    with _db_lock:
+        conn = sqlite3.connect(DB_FILE)
+        conn.row_factory = sqlite3.Row
+        c = conn.cursor()
+        c.execute(query, params)
+        result = None
+        if fetch:
+            result = [dict(row) for row in c.fetchall()]
+        else:
+            conn.commit()
+        conn.close()
     return result
 
 def log_threat_to_db(client_id, threat_name, engine, path, f_hash, sev="HIGH", desc="Detected by scanner."):
@@ -103,10 +134,118 @@ def get_active_ip():
     return LOCAL_IP or "127.0.0.1"
 
 
+def _check_session(request):
+    """Return username jika session valid, None jika tidak."""
+    token = request.cookies.get('hs_session', '')
+    if not token:
+        return None
+    rows = run_query(
+        "SELECT username FROM sessions WHERE token=? AND expires_at > ?",
+        (token, time.time()), fetch=True
+    )
+    return rows[0]['username'] if rows else None
+
+
 def start_http_server(active_ip):
     if not os.path.exists(DIST_DIR):
         print(f"[WARN] dist/ folder not found. HTTP server not started.")
         return
+
+    # ------------------------------------------------------------------
+    # AUTH MIDDLEWARE
+    # ------------------------------------------------------------------
+    UNPROTECTED_PATHS = {'/login', '/api/login'}
+
+    @web.middleware
+    async def auth_middleware(request, handler):
+        if request.path in UNPROTECTED_PATHS:
+            return await handler(request)
+
+        username = await asyncio.to_thread(_check_session, request)
+        if not username:
+            # API → 401 JSON  |  Page → redirect ke /login
+            if request.path.startswith('/api/'):
+                return web.json_response({"error": "unauthorized"}, status=401)
+            raise web.HTTPFound('/login')
+
+        return await handler(request)
+
+    # ------------------------------------------------------------------
+    # AUTH ENDPOINTS
+    # ------------------------------------------------------------------
+
+    async def login_page(request):
+        """GET /login — serve login.html"""
+        login_path = os.path.join(DIST_DIR, 'login.html')
+        if not os.path.exists(login_path):
+            return web.Response(text="login.html not found in dist/", status=404)
+        return web.FileResponse(login_path)
+
+    async def api_login(request):
+        """POST /api/login — validasi credential, set cookie session 8 jam."""
+        try:
+            data     = await request.post()
+            username = data.get('username', '').strip()
+            password = data.get('password', '').strip()
+
+            if not username or not password:
+                raise web.HTTPFound('/login?error=empty')
+
+            users = run_query(
+                "SELECT password_hash FROM users WHERE username=?",
+                (username,), fetch=True
+            )
+            if not users:
+                raise web.HTTPFound('/login?error=invalid')
+
+            stored   = users[0]['password_hash']        # format: "salt:hash"
+            salt, stored_hash = stored.split(':', 1)
+            computed = hashlib.sha256(f"{salt}:{password}".encode()).hexdigest()
+
+            if computed != stored_hash:
+                raise web.HTTPFound('/login?error=invalid')
+
+            # Buat session baru
+            token      = secrets.token_hex(32)
+            expires_at = time.time() + (8 * 3600)       # 8 jam
+
+            run_query(
+                "INSERT INTO sessions (token, username, expires_at) VALUES (?, ?, ?)",
+                (token, username, expires_at)
+            )
+            # Bersihkan session expired lama
+            run_query("DELETE FROM sessions WHERE expires_at < ?", (time.time(),))
+
+            print(f"[AUTH] Login sukses — user: '{username}'")
+
+            response = web.HTTPFound('/')
+            response.set_cookie(
+                'hs_session', token,
+                max_age=8 * 3600,
+                httponly=True,
+                samesite='Strict'
+            )
+            raise response
+
+        except web.HTTPException:
+            raise
+        except Exception as e:
+            print(f"[AUTH] Login error: {e}")
+            raise web.HTTPFound('/login?error=invalid')
+
+    async def api_logout(request):
+        """POST /api/logout — hapus session, redirect ke /login."""
+        token = request.cookies.get('hs_session', '')
+        if token:
+            run_query("DELETE FROM sessions WHERE token=?", (token,))
+            print(f"[AUTH] Logout — token invalidated")
+        response = web.HTTPFound('/login')
+        response.del_cookie('hs_session')
+        raise response
+
+    # ------------------------------------------------------------------
+    # DATA API ENDPOINTS
+    # ------------------------------------------------------------------
 
     async def api_get_agents(request):
         agents = run_query("SELECT * FROM agents", fetch=True)
@@ -117,14 +256,15 @@ def start_http_server(active_ip):
         return web.json_response(agents)
 
     async def api_get_threats(request):
-        # PERUBAHAN 1: Menyulap log mentah menjadi ancaman unik menggunakan GROUP BY hash
-        threats = run_query("SELECT * FROM threats GROUP BY hash ORDER BY id DESC LIMIT 1000", fetch=True)
+        threats = run_query(
+            "SELECT * FROM threats GROUP BY hash ORDER BY id DESC LIMIT 1000",
+            fetch=True
+        )
         return web.json_response(threats)
 
     async def api_get_activity(request):
-        # Query SQLite untuk merangkum total file dan ancaman per hari (7 hari terakhir)
         query = """
-            SELECT 
+            SELECT
                 date(scan_date) as date_val,
                 SUM(total_scanned) as total,
                 SUM(infected_count) as infected
@@ -134,51 +274,38 @@ def start_http_server(active_ip):
             ORDER BY date(scan_date) ASC
         """
         rows = run_query(query, fetch=True)
-        
-        labels = []
-        clean_data = []
-        threat_data = []
-        
+        labels, clean_data, threat_data = [], [], []
         for row in rows:
-            # Mengambil tanggal format MM-DD
-            labels.append(row['date_val'][5:]) 
-            
-            infected = row['infected'] if row['infected'] else 0
-            total = row['total'] if row['total'] else 0
-            clean = total - infected
-            
+            labels.append(row['date_val'][5:])
+            infected = row['infected'] or 0
+            total    = row['total'] or 0
             threat_data.append(infected)
-            clean_data.append(clean)
-            
-        return web.json_response({
-            "labels": labels,
-            "clean": clean_data,
-            "threats": threat_data
-        })
+            clean_data.append(total - infected)
+        return web.json_response({"labels": labels, "clean": clean_data, "threats": threat_data})
 
     async def api_heartbeat(request):
         try:
             data = await request.json()
-            h = data.get('hostname', 'Unknown')
+            h    = data.get('hostname', 'Unknown')
             run_query("""
                 INSERT INTO agents (hostname, os, localIp, tailscaleIp, last_heartbeat, status)
                 VALUES (?, ?, ?, ?, ?, 'online')
                 ON CONFLICT(hostname) DO UPDATE SET
-                os=excluded.os, localIp=excluded.localIp, tailscaleIp=excluded.tailscaleIp, 
+                os=excluded.os, localIp=excluded.localIp, tailscaleIp=excluded.tailscaleIp,
                 last_heartbeat=excluded.last_heartbeat, status='online'
             """, (h, data.get('os', ''), data.get('localIp', ''), data.get('tailscaleIp', ''), time.time()))
             return web.json_response({"status": "ok"})
         except Exception as e:
             return web.json_response({"error": str(e)}, status=400)
-            
+
     async def api_event(request):
         try:
             t = await request.json()
             run_query("""
                 INSERT INTO threats (sev, name, family, engine, path, agent, status, time, hash, desc, mitigation, vt)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """, (t.get('sev'), t.get('name'), t.get('family'), t.get('engine'), t.get('path'), 
-                  t.get('agent'), t.get('status'), t.get('time'), t.get('hash'), t.get('desc'), 
+            """, (t.get('sev'), t.get('name'), t.get('family'), t.get('engine'), t.get('path'),
+                  t.get('agent'), t.get('status'), t.get('time'), t.get('hash'), t.get('desc'),
                   t.get('mitigation'), t.get('vt')))
             return web.json_response({"status": "logged"})
         except Exception as e:
@@ -187,14 +314,20 @@ def start_http_server(active_ip):
     async def index_handler(request):
         return web.FileResponse(os.path.join(DIST_DIR, 'dashboard.html'))
 
-    app = web.Application()
-    app.router.add_get('/api/agents', api_get_agents)
-    app.router.add_get('/api/activity', api_get_activity)
-    app.router.add_get('/api/threats', api_get_threats)
+    # ------------------------------------------------------------------
+    # APP SETUP
+    # ------------------------------------------------------------------
+    app = web.Application(middlewares=[auth_middleware])
+    app.router.add_get('/login',         login_page)
+    app.router.add_post('/api/login',    api_login)
+    app.router.add_post('/api/logout',   api_logout)
+    app.router.add_get('/api/agents',    api_get_agents)
+    app.router.add_get('/api/activity',  api_get_activity)
+    app.router.add_get('/api/threats',   api_get_threats)
     app.router.add_post('/api/heartbeat', api_heartbeat)
-    app.router.add_post('/api/event', api_event)
-    app.router.add_get('/', index_handler)
-    app.router.add_static('/', path=DIST_DIR, name='static')
+    app.router.add_post('/api/event',    api_event)
+    app.router.add_get('/',              index_handler)
+    app.router.add_static('/',           path=DIST_DIR, name='static')
 
     def run_server():
         loop = asyncio.new_event_loop()
@@ -207,7 +340,8 @@ def start_http_server(active_ip):
 
     thread = threading.Thread(target=run_server, daemon=True)
     thread.start()
-    print(f"[*] EDR Dashboard & API Online. Serving on http://{active_ip}:{HTTP_PORT}...")
+    print(f"[*] EDR Dashboard → http://{active_ip}:{HTTP_PORT}")
+    print(f"[*] Login page  → http://{active_ip}:{HTTP_PORT}/login")
 
 
 # --- PROTOCOL HELPERS ---
@@ -642,7 +776,6 @@ if __name__ == "__main__":
 
             req_type = data.get("type", "")
 
-            # MENGHAPUS LOGIKA SCANS = SCANS + 1 DARI SINI
 
             if req_type == "generate_report":
                 print(f"[*] [{client_identity}] Report request ({data.get('format', 'html')})")
