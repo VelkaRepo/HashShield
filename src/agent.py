@@ -30,7 +30,7 @@ load_dotenv(_base_dir / ".env")
 # Ambil IP Lokal dan Tailscale dari .env
 LOCAL_IP      = os.getenv("SHIELD_LOCAL_IP", "192.168.18.6")
 TAILSCALE_IP  = os.getenv("SHIELD_TAILSCALE_IP", "")
-DEFAULT_HOST  = LOCAL_IP or TAILSCALE_IP or "127.0.0.1"
+DEFAULT_HOST  = TAILSCALE_IP or LOCAL_IP or "127.0.0.1"
 DEFAULT_PORT  = int(os.getenv("SHIELD_DAEMON_PORT", 65432))
 DEFAULT_TOKEN = os.getenv("SHIELD_AUTH_TOKEN", "")
 TIMEOUT       = 10.0
@@ -449,8 +449,8 @@ def main():
     if args.server != DEFAULT_HOST and args.server:
         target_ips.append(("Manual Flag", args.server))
     else:
-        if LOCAL_IP: target_ips.append(("Lokal", LOCAL_IP))
         if TAILSCALE_IP: target_ips.append(("Tailscale", TAILSCALE_IP))
+        if LOCAL_IP: target_ips.append(("Lokal", LOCAL_IP))
 
     host = None
     for route_name, ip in target_ips:

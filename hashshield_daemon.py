@@ -154,7 +154,7 @@ def start_http_server(active_ip):
     # ------------------------------------------------------------------
     # AUTH MIDDLEWARE
     # ------------------------------------------------------------------
-    UNPROTECTED_PATHS = {'/login', '/api/login'}
+    UNPROTECTED_PATHS = {'/login', '/api/login', '/install.bat', '/agent.exe'}
 
     @web.middleware
     async def auth_middleware(request, handler):
