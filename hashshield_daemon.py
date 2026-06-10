@@ -314,7 +314,111 @@ def start_http_server(active_ip):
     async def index_handler(request):
         return web.FileResponse(os.path.join(DIST_DIR, 'dashboard.html'))
 
-    # ------------------------------------------------------------------
+    async def api_get_intel(request):
+        # 1. Top Families
+        top_families = run_query("""
+            SELECT family as name, COUNT(*) as count 
+            FROM threats GROUP BY family ORDER BY count DESC LIMIT 10
+        """, fetch=True)
+
+        # 2. Engine Breakdown
+        engine_bd = run_query("""
+            SELECT engine, COUNT(*) as count 
+            FROM threats GROUP BY engine
+        """, fetch=True)
+
+        # 3. Per Agent Stats
+        per_agent = run_query("""
+            SELECT agent, COUNT(*) as count 
+            FROM threats GROUP BY agent ORDER BY count DESC
+        """, fetch=True)
+
+        # 4. Platform Breakdown (Deteksi dari awalan nama malware)
+        all_threats = run_query("SELECT name FROM threats", fetch=True)
+        plat_counts = {"Win": 0, "Linux": 0, "Android": 0, "Java": 0, "Html": 0, "Other": 0}
+        
+        for t in all_threats:
+            name = t['name'].lower()
+            if name.startswith('win'): plat_counts['Win'] += 1
+            elif name.startswith('linux'): plat_counts['Linux'] += 1
+            elif name.startswith('android'): plat_counts['Android'] += 1
+            elif name.startswith('java'): plat_counts['Java'] += 1
+            elif name.startswith('html'): plat_counts['Html'] += 1
+            else: plat_counts['Other'] += 1
+
+        platforms = [{"platform": k, "count": v} for k, v in plat_counts.items() if v > 0]
+        platforms.sort(key=lambda x: x['count'], reverse=True)
+
+        return web.json_response({
+            "top_families": top_families,
+            "engine_breakdown": engine_bd,
+            "platforms": platforms,
+            "per_agent": per_agent
+        })
+
+    async def api_intel_lookup(request):
+        # Handler untuk fitur Hash Lookup di halaman Threat Intel
+        hash_val = request.query.get('hash', '').strip().lower()
+        if not hash_val:
+            return web.json_response({"found": False})
+
+        rows = run_query("SELECT * FROM threats WHERE hash=? LIMIT 1", (hash_val,), fetch=True)
+        if rows:
+            return web.json_response({"found": True, "threat": rows[0]})
+        return web.json_response({"found": False})
+
+    async def api_get_analytics(request):
+        # 1. Summary
+        sum_rows = run_query("""
+            SELECT SUM(total_scanned) as tf, SUM(infected_count) as ti, COUNT(*) as ts 
+            FROM scan_reports
+        """, fetch=True)
+        
+        tf = sum_rows[0]['tf'] or 0
+        ti = sum_rows[0]['ti'] or 0
+        ts = sum_rows[0]['ts'] or 0
+        det_rate = round((ti / tf * 100), 2) if tf > 0 else 0
+
+        # 2. Daily Chart Activity
+        chart_rows = run_query("""
+            SELECT date(scan_date) as date_val, SUM(total_scanned) as total, SUM(infected_count) as infected
+            FROM scan_reports 
+            WHERE date(scan_date) >= date('now', '-6 days') 
+            GROUP BY date(scan_date) ORDER BY date(scan_date) ASC
+        """, fetch=True)
+        
+        labels, clean_data, threat_data = [], [], []
+        for r in chart_rows:
+            labels.append(r['date_val'][5:])  # Ambil MM-DD
+            infected = r['infected'] or 0
+            total = r['total'] or 0
+            threat_data.append(infected)
+            clean_data.append(total - infected)
+
+        # 3. Per Agent Performance
+        agent_stats = run_query("""
+            SELECT agent, COUNT(*) as total_scans, 
+                   SUM(total_scanned) as total_files, SUM(infected_count) as total_infected,
+                   ROUND(AVG(duration), 2) as avg_duration,
+                   ROUND(AVG(CAST(total_scanned AS FLOAT) / CASE WHEN duration = 0 THEN 1 ELSE duration END), 1) as avg_throughput
+            FROM scan_reports GROUP BY agent
+        """, fetch=True)
+
+        # 4. Scan History
+        history = run_query("""
+            SELECT agent, scan_date, total_scanned, infected_count,
+                   ROUND(CAST(total_scanned AS FLOAT) / CASE WHEN duration = 0 THEN 1 ELSE duration END, 1) as throughput
+            FROM scan_reports ORDER BY id DESC LIMIT 15
+        """, fetch=True)
+
+        return web.json_response({
+            "summary": {"total_files": tf, "total_infected": ti, "detection_rate": det_rate, "total_sessions": ts},
+            "daily_chart": {"labels": labels, "threats": threat_data, "clean": clean_data},
+            "per_agent_stats": agent_stats,
+            "scan_history": history
+        })
+
+# ------------------------------------------------------------------
     # APP SETUP
     # ------------------------------------------------------------------
     app = web.Application(middlewares=[auth_middleware])
@@ -326,6 +430,9 @@ def start_http_server(active_ip):
     app.router.add_get('/api/threats',   api_get_threats)
     app.router.add_post('/api/heartbeat', api_heartbeat)
     app.router.add_post('/api/event',    api_event)
+    app.router.add_get('/api/intel',         api_get_intel)
+    app.router.add_get('/api/intel/lookup',  api_intel_lookup)
+    app.router.add_get('/api/analytics',     api_get_analytics)
     app.router.add_get('/',              index_handler)
     app.router.add_static('/',           path=DIST_DIR, name='static')
 
