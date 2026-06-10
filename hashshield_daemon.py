@@ -776,7 +776,6 @@ if __name__ == "__main__":
 
             req_type = data.get("type", "")
 
-
             if req_type == "generate_report":
                 print(f"[*] [{client_identity}] Report request ({data.get('format', 'html')})")
                 
