@@ -427,7 +427,8 @@ def main():
         description="HashShield Agent — Remote Scanner Client",
         formatter_class=argparse.RawTextHelpFormatter
     )
-    parser.add_argument("path",      metavar="PATH",   help="File or directory to scan")
+    # MODIFIKASI: Argumen path sekarang opsional (nargs='?', default=None)
+    parser.add_argument("path",      metavar="PATH", nargs='?', default=None, help="File or directory to scan")
     parser.add_argument("--server",  metavar="IP",     default=DEFAULT_HOST,  help=f"Daemon IP (default: {DEFAULT_HOST})")
     parser.add_argument("--port",    metavar="PORT",   type=int, default=DEFAULT_PORT, help=f"Daemon port (default: {DEFAULT_PORT})")
     parser.add_argument("--token",   metavar="TOKEN",  default=DEFAULT_TOKEN, help="Auth token (overrides .env)")
@@ -449,6 +450,7 @@ def main():
     if args.server != DEFAULT_HOST and args.server:
         target_ips.append(("Manual Flag", args.server))
     else:
+        # Prioritaskan Tailscale
         if TAILSCALE_IP: target_ips.append(("Tailscale", TAILSCALE_IP))
         if LOCAL_IP: target_ips.append(("Lokal", LOCAL_IP))
 
@@ -470,6 +472,17 @@ def main():
     # --- EDITED: START HEARTBEAT THREAD (Setelah Host Terverifikasi) ---
     h_thread = threading.Thread(target=heartbeat_worker, args=(host, 8080), daemon=True)
     h_thread.start()
+
+    # --- MODIFIKASI: BLOK SERVICE MODE / STANDBY ---
+    if args.path is None:
+        print(f"\n  {C_GREEN}[+] HashShield Agent Service Mode Aktif.{C_RESET}")
+        print(f"  {C_GREY}Agent berjalan di latar belakang (Heartbeat konstan).{C_RESET}")
+        try:
+            while True:
+                time.sleep(1)
+        except KeyboardInterrupt:
+            print(f"\n  {C_YELLOW}[*] Service dihentikan.{C_RESET}")
+        return
 
     print(f"\n  {C_GREEN}[+] Daemon reachable via {host}. Starting scan...{C_RESET}\n")
     print(f"{'─' * 55}")
