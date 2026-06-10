@@ -107,12 +107,23 @@ def run_query(query, params=(), fetch=False):
 
 def log_threat_to_db(client_id, threat_name, engine, path, f_hash, sev="HIGH", desc="Detected by scanner."):
     vt_url = f"https://www.virustotal.com/gui/file/{f_hash}" if f_hash and f_hash != "—" else ""
+    
+    # --- LOGIKA EKSTRAKSI FAMILY DINAMIS ---
+    family_name = "Malware Detection"
+    if threat_name:
+        if "VirusTotal" in threat_name or engine.upper() == "CLOUD":
+            family_name = "Cloud.VirusTotal"
+        elif "-" in threat_name:
+            # Memotong akhiran nomor varian (Contoh: Win.Trojan.Agent-36902 menjadi Win.Trojan.Agent)
+            family_name = threat_name.rsplit('-', 1)[0]
+        else:
+            family_name = threat_name
+    # ----------------------------------------
+
     run_query("""
         INSERT INTO threats (sev, name, family, engine, path, agent, status, time, hash, desc, mitigation, vt)
-        VALUES (?, ?, 'Malware Detection', ?, ?, ?, 'INFECTED', ?, ?, ?, 'Isolasi file segera.', ?)
-    """, (sev, threat_name, engine, path, client_id, datetime.now().strftime("%H:%M:%S"), f_hash, desc, vt_url))
-    # Menghapus penambahan threats akumulatif dari sini agar bisa di-handle di level deduplikasi
-
+        VALUES (?, ?, ?, ?, ?, ?, 'INFECTED', ?, ?, ?, 'Isolasi file segera.', ?)
+    """, (sev, threat_name, family_name, engine, path, client_id, datetime.now().strftime("%H:%M:%S"), f_hash, desc, vt_url))
 # --- NETWORK HELPERS ---
 
 def get_active_ip():
